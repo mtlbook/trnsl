@@ -24,7 +24,7 @@ const id = idMatch[1];
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // System instruction
 const systemInstruction = {
@@ -35,16 +35,17 @@ const systemInstruction = {
           "when readability benefits. Prioritize natural English flow while keeping the " +
           "original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, " +
           "translate literally if possible; otherwise, adapt with a footnote. Dialogue must " +
-          "match the original's bluntness or subtlety, including punctuation."
+          "match the original's bluntness or subtlety, including punctuation. " +
+          "IMPORTANT: Return the translation in EXACTLY the same JSON format as the input, " +
+          "with each chapter having 'title' and 'content' fields."
   }]
 };
 
 async function translateChapters(chapters) {
   try {
-    const chapterTexts = chapters.map(ch => `Title: ${ch.title}\nContent: ${ch.content}`).join('\n\n---\n\n');
-    
     const prompt = `Translate the following chapters from Chinese to English exactly as they are. ` +
-                   `Do not modify the structure or add any commentary. Keep the JSON format:\n\n${chapterTexts}`;
+                   `Maintain the original JSON structure with 'title' and 'content' fields for each chapter. ` +
+                   `Here is the input:\n\n${JSON.stringify(chapters, null, 2)}`;
     
     const result = await model.generateContent({
       contents: [
@@ -56,16 +57,52 @@ async function translateChapters(chapters) {
     const response = await result.response;
     const translatedText = response.text();
     
-    // Parse the translated text back into chapters
-    // This is a simple parser - you might need to adjust based on Gemini's output
-    const translatedChapters = [];
-    const sections = translatedText.split(/Title: |Content: /).filter(s => s.trim());
+    // Try to parse the response as JSON first
+    try {
+      const parsed = JSON.parse(translatedText);
+      if (Array.isArray(parsed) && parsed.every(item => item.title && item.content)) {
+        return parsed;
+      }
+    } catch (e) {
+      console.log('Response was not direct JSON, attempting to extract...');
+    }
     
-    for (let i = 0; i < sections.length; i += 2) {
-      translatedChapters.push({
-        title: sections[i].trim(),
-        content: sections[i+1].trim()
-      });
+    // Fallback: Try to extract JSON from markdown code blocks
+    const codeBlockMatch = translatedText.match(/```(?:json)?\n([\s\S]*?)\n```/);
+    if (codeBlockMatch) {
+      try {
+        const parsed = JSON.parse(codeBlockMatch[1]);
+        if (Array.isArray(parsed) && parsed.every(item => item.title && item.content)) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Failed to parse code block JSON:', e);
+      }
+    }
+    
+    // Final fallback: Manual parsing
+    console.warn('Could not parse response as JSON, attempting manual parsing...');
+    const lines = translatedText.split('\n');
+    const translatedChapters = [];
+    let currentChapter = null;
+    
+    for (const line of lines) {
+      if (line.startsWith('Title:')) {
+        if (currentChapter) translatedChapters.push(currentChapter);
+        currentChapter = { title: line.replace('Title:', '').trim(), content: '' };
+      } else if (line.startsWith('Content:')) {
+        if (currentChapter) {
+          currentChapter.content = line.replace('Content:', '').trim();
+        }
+      } else if (currentChapter && currentChapter.title) {
+        currentChapter.content += '\n' + line.trim();
+      }
+    }
+    
+    if (currentChapter) translatedChapters.push(currentChapter);
+    
+    if (translatedChapters.length === 0) {
+      throw new Error('Could not parse any chapters from the response');
     }
     
     return translatedChapters;
@@ -78,15 +115,18 @@ async function translateChapters(chapters) {
 async function main() {
   try {
     // Fetch the original JSON
+    console.log(`Fetching JSON from ${jsonUrl}...`);
     const response = await axios.get(jsonUrl);
     const chapters = response.data;
+    console.log(`Found ${chapters.length} chapters to translate`);
     
     // Process in batches
     const translatedChapters = [];
     for (let i = 0; i < chapters.length; i += chaptersPerRequest) {
-      const batch = chapters.slice(i, i + chaptersPerRequest);
-      console.log(`Translating chapters ${i+1} to ${Math.min(i+chaptersPerRequest, chapters.length)}...`);
+      const batchEnd = Math.min(i + chaptersPerRequest, chapters.length);
+      console.log(`Translating chapters ${i+1} to ${batchEnd}...`);
       
+      const batch = chapters.slice(i, batchEnd);
       const translatedBatch = await translateChapters(batch);
       translatedChapters.push(...translatedBatch);
       
