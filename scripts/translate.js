@@ -1,122 +1,58 @@
-const fs = require('fs');
-const path = require('path');
+// scripts/translate.js
 const axios = require('axios');
+const fs = require('fs').promises;
+const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-require('dotenv').config();
 
-// Get arguments
-const jsonUrl = process.argv[2];
-const chaptersPerRequest = 1; // Process one at a time for reliability
+const jsonUrl = process.env.JSON_URL;
+const geminiApiKey = process.env.GEMINI_API_KEY;
+const resultFolder = 'result';
 
-// Validate URL
-if (!jsonUrl) {
-  console.error('Please provide a JSON URL as the first argument');
+if (!jsonUrl || !geminiApiKey) {
+  console.error('JSON_URL and GEMINI_API_KEY environment variables are required.');
   process.exit(1);
 }
 
-// Extract ID from URL
-const idMatch = jsonUrl.match(/\/(\d+)\.json$/);
-if (!idMatch) {
-  console.error('Invalid JSON URL format. Expected URL ending with /ID.json');
-  process.exit(1);
-}
-const id = idMatch[1];
+const genAI = new GoogleGenerativeAI(geminiApiKey);
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const systemInstruction = `You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original’s tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original’s bluntness or subtlety, including punctuation.`;
 
-// System instruction
-const systemInstruction = {
-  role: "model",
-  parts: [{
-    text: `You are a professional Chinese-to-English translator. Follow these rules:
-1. Translate ONLY the content text (do not modify or translate the title)
-2. Preserve all names and proper nouns
-3. Keep original tone and style
-4. Maintain all formatting (paragraphs, line breaks, etc.)
-5. Return ONLY the translated text with no additional commentary`
-  }]
-};
-
-async function translateContent(content, retries = 3) {
-  try {
-    const prompt = `Translate the following Chinese text to English exactly as it is.
-Maintain all formatting and special characters.
-Do not add any notes or commentary.
-
-Text to translate:
-${content}
-
-Translated text:`;
-    
-    const result = await model.generateContent({
-      contents: [
-        { role: "user", parts: [{ text: prompt }] },
-        systemInstruction
-      ]
-    });
-    
-    const response = await result.response;
-    return response.text();
-  } catch (error) {
-    if (retries > 0) {
-      console.log(`Retrying... (${retries} attempts remaining)`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      return translateContent(content, retries - 1);
-    }
-    throw error;
+async function translateContent(text) {
+  const result = await model.generateContentStream([systemInstruction, text]);
+  let translatedText = '';
+  for await (const chunk of result.stream) {
+    translatedText += chunk.text();
   }
+  return translatedText;
 }
 
 async function main() {
   try {
-    // Fetch the original JSON
-    console.log(`Fetching JSON from ${jsonUrl}...`);
+    console.log(`Fetching JSON from: ${jsonUrl}`);
     const response = await axios.get(jsonUrl);
     const chapters = response.data;
-    console.log(`Found ${chapters.length} chapters to translate`);
-    
-    // Process chapters
+    console.log(`Found ${chapters.length} chapters to translate.`);
+
     const translatedChapters = [];
-    for (let i = 0; i < chapters.length; i++) {
-      console.log(`Translating chapter ${i+1}/${chapters.length}: ${chapters[i].title}`);
-      
-      try {
-        const translatedContent = await translateContent(chapters[i].content);
-        translatedChapters.push({
-          title: chapters[i].title, // Keep original title
-          content: translatedContent.trim()
-        });
-        
-        // Save progress after each chapter
-        const resultsDir = path.join(__dirname, '../results');
-        if (!fs.existsSync(resultsDir)) {
-          fs.mkdirSync(resultsDir);
-        }
-        const tempPath = path.join(resultsDir, `${id}_temp.json`);
-        fs.writeFileSync(tempPath, JSON.stringify(translatedChapters, null, 2));
-        
-        // Rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1500));
-      } catch (error) {
-        console.error(`Failed to translate chapter ${i+1}:`, error);
-        // Save partial results
-        translatedChapters.push({
-          title: chapters[i].title,
-          content: "[TRANSLATION FAILED] " + chapters[i].content
-        });
-      }
+    for (const chapter of chapters) {
+      console.log(`Translating chapter: ${chapter.title}`);
+      const translatedContent = await translateContent(chapter.content);
+      translatedChapters.push({
+        title: chapter.title, // Assuming title does not need translation, or you can translate it as well
+        content: translatedContent,
+      });
     }
-    
-    // Save final results
-    const resultsDir = path.join(__dirname, '../results');
-    const outputPath = path.join(resultsDir, `${id}.json`);
-    fs.writeFileSync(outputPath, JSON.stringify(translatedChapters, null, 2));
-    console.log(`Translation completed and saved to ${outputPath}`);
-    
+
+    const urlParts = jsonUrl.split('/');
+    const jsonId = urlParts[urlParts.length - 1].replace('.json', '');
+    const resultFilePath = path.join(resultFolder, `${jsonId}.json`);
+
+    await fs.writeFile(resultFilePath, JSON.stringify(translatedChapters, null, 2));
+    console.log(`Translation complete. Translated file saved to: ${resultFilePath}`);
+
   } catch (error) {
-    console.error('Error:', error);
+    console.error('An error occurred during the translation process:', error);
     process.exit(1);
   }
 }
