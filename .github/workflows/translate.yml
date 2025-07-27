@@ -1,0 +1,41 @@
+name: Translate Chapters
+
+on:
+  workflow_dispatch:
+    inputs:
+      json_url:
+        description: 'URL of the JSON file to translate'
+        required: true
+        type: string
+      chapters_per_request:
+        description: 'Number of chapters per request (default 5)'
+        required: false
+        type: number
+        default: 5
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install dependencies
+        run: npm install axios @google/generative-ai dotenv
+        
+      - name: Run translation script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/translate.js "${{ inputs.json_url }}" ${{ inputs.chapters_per_request }}
+        
+      - name: Commit and push results
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add results/
+          git commit -m "Add translation results" || echo "No changes to commit"
+          git push
