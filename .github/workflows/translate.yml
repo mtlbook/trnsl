@@ -30,7 +30,7 @@ jobs:
       - name: Run translation script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node script/translate.js "${{ inputs.json_url }}" ${{ inputs.chapters_per_request || 5 }}
+        run: node scripts/translate.js "${{ inputs.json_url }}" ${{ inputs.chapters_per_request || 5 }}
         
       - name: Commit and push results
         run: |
