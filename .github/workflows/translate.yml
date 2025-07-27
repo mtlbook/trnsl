@@ -1,35 +1,41 @@
-# .github/workflows/translate.yml
-name: Manual Translation Workflow
+name: Translate JSON
 
 on:
   workflow_dispatch:
     inputs:
       json_url:
-        description: 'URL of the JSON file to translate'
+        description: 'URL of the JSON to translate'
         required: true
-        default: 'https://github.com/YuushaExa/crawl/raw/refs/heads/main/results/288571.json'
+        type: string
+      chapters_per_request:
+        description: 'Number of chapters per request (default 5)'
+        required: false
+        type: number
+        default: 3
 
 jobs:
   translate:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-
+          node-version: '20'
+          
       - name: Install dependencies
-        run: npm install @google/generative-ai axios
-
-      - name: Create result folder
-        run: mkdir -p result
-
+        run: npm install axios @google/generative-ai
+        
       - name: Run translation script
-        run: node scripts/translate.js
         env:
-          JSON_URL: ${{ github.event.inputs.json_url }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node script/translate.js "${{ inputs.json_url }}" ${{ inputs.chapters_per_request || 5 }}
+        
+      - name: Commit and push results
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add results
+          git commit -m "Add translated result" || echo "No changes to commit"
+          git push
