@@ -30,22 +30,31 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 const systemInstruction = {
   role: "model",
   parts: [{
-    text: "You are a strict translator. Do not modify the story, characters, or intent. " +
-          "Preserve all names of people, but translate techniques/props/places/organizations " +
-          "when readability benefits. Prioritize natural English flow while keeping the " +
-          "original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, " +
-          "translate literally if possible; otherwise, adapt with a footnote. Dialogue must " +
-          "match the original's bluntness or subtlety, including punctuation. " +
-          "IMPORTANT: Return the translation in EXACTLY the same JSON format as the input, " +
-          "with each chapter having 'title' and 'content' fields."
+    text: `You are a strict Chinese-to-English translator. Follow these rules:
+1. Maintain original structure as JSON array with "title" and "content" for each chapter
+2. Preserve all names and proper nouns
+3. Keep original tone and style
+4. Output MUST be valid JSON that can be parsed directly
+5. Do not add any commentary or notes
+
+Example input format:
+[{"title":"...","content":"..."},{"title":"...","content":"..."}]
+
+Example output format:
+[{"title":"...","content":"..."},{"title":"...","content":"..."}]`
   }]
 };
 
 async function translateChapters(chapters) {
   try {
-    const prompt = `Translate the following chapters from Chinese to English exactly as they are. ` +
-                   `Maintain the original JSON structure with 'title' and 'content' fields for each chapter. ` +
-                   `Here is the input:\n\n${JSON.stringify(chapters, null, 2)}`;
+    const prompt = `Translate the following chapters from Chinese to English exactly as they are.
+Maintain the original JSON structure with 'title' and 'content' fields for each chapter.
+Return ONLY the translated JSON with no additional text or commentary.
+
+Input JSON:
+${JSON.stringify(chapters, null, 2)}
+
+Translated JSON:`;
     
     const result = await model.generateContent({
       contents: [
@@ -57,55 +66,46 @@ async function translateChapters(chapters) {
     const response = await result.response;
     const translatedText = response.text();
     
-    // Try to parse the response as JSON first
+    // Debug: Save raw response
+    fs.writeFileSync('last_response.txt', translatedText);
+    console.log('Raw response saved to last_response.txt');
+    
+    // Clean the response
+    let cleanText = translatedText.trim();
+    
+    // Remove potential markdown code block markers
+    cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Remove any text before the first [ and after the last ]
+    const jsonStart = cleanText.indexOf('[');
+    const jsonEnd = cleanText.lastIndexOf(']');
+    
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error('No JSON array found in response');
+    }
+    
+    cleanText = cleanText.slice(jsonStart, jsonEnd + 1);
+    
     try {
-      const parsed = JSON.parse(translatedText);
-      if (Array.isArray(parsed) && parsed.every(item => item.title && item.content)) {
-        return parsed;
+      const parsed = JSON.parse(cleanText);
+      
+      if (!Array.isArray(parsed)) {
+        throw new Error('Response is not an array');
       }
-    } catch (e) {
-      console.log('Response was not direct JSON, attempting to extract...');
-    }
-    
-    // Fallback: Try to extract JSON from markdown code blocks
-    const codeBlockMatch = translatedText.match(/```(?:json)?\n([\s\S]*?)\n```/);
-    if (codeBlockMatch) {
-      try {
-        const parsed = JSON.parse(codeBlockMatch[1]);
-        if (Array.isArray(parsed) && parsed.every(item => item.title && item.content)) {
-          return parsed;
+      
+      // Validate each chapter
+      for (const chapter of parsed) {
+        if (!chapter.title || !chapter.content) {
+          throw new Error('Invalid chapter format - missing title or content');
         }
-      } catch (e) {
-        console.error('Failed to parse code block JSON:', e);
       }
+      
+      return parsed;
+    } catch (parseError) {
+      console.error('Failed to parse response:', parseError);
+      console.error('Response content:', cleanText);
+      throw new Error('Could not parse valid JSON from response');
     }
-    
-    // Final fallback: Manual parsing
-    console.warn('Could not parse response as JSON, attempting manual parsing...');
-    const lines = translatedText.split('\n');
-    const translatedChapters = [];
-    let currentChapter = null;
-    
-    for (const line of lines) {
-      if (line.startsWith('Title:')) {
-        if (currentChapter) translatedChapters.push(currentChapter);
-        currentChapter = { title: line.replace('Title:', '').trim(), content: '' };
-      } else if (line.startsWith('Content:')) {
-        if (currentChapter) {
-          currentChapter.content = line.replace('Content:', '').trim();
-        }
-      } else if (currentChapter && currentChapter.title) {
-        currentChapter.content += '\n' + line.trim();
-      }
-    }
-    
-    if (currentChapter) translatedChapters.push(currentChapter);
-    
-    if (translatedChapters.length === 0) {
-      throw new Error('Could not parse any chapters from the response');
-    }
-    
-    return translatedChapters;
   } catch (error) {
     console.error('Translation error:', error);
     throw error;
@@ -131,7 +131,7 @@ async function main() {
       translatedChapters.push(...translatedBatch);
       
       // Small delay between requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 7000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
     // Ensure results directory exists
