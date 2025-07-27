@@ -29,7 +29,7 @@ jobs:
 
       - name: Run translation script
         run: |
-          node script/translate.js \
+          node scripts/translate.js \
             --json-url "${{ github.event.inputs.json_url }}" \
             --api-key "${{ secrets.GEMINI_API_KEY }}"
         
