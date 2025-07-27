@@ -9,7 +9,7 @@ const systemInstruction = "You are a strict translator. Do not modify the story,
 
 async function translateContent(apiKey, chapters) {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const prompt = chapters.map(chapter => `Title: ${chapter.title}\nContent:\n${chapter.content}`).join('\n\n---\n\n');
 
@@ -34,17 +34,21 @@ async function translateContent(apiKey, chapters) {
 }
 
 async function main() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY environment variable not set.");
+    process.exit(1);
+  }
+  
   const args = process.argv.slice(2);
   const jsonUrlArg = args.find(arg => arg.startsWith('--json-url='));
-  const apiKeyArg = args.find(arg => arg.startsWith('--api-key='));
 
-  if (!jsonUrlArg || !apiKeyArg) {
-    console.error("Usage: node script/translate.js --json-url=<URL> --api-key=<API_KEY>");
+  if (!jsonUrlArg) {
+    console.error("Usage: node script/translate.js --json-url=<URL>");
     process.exit(1);
   }
 
   const jsonUrl = jsonUrlArg.split('=')[1];
-  const apiKey = apiKeyArg.split('=')[1];
 
   try {
     const response = await fetch(jsonUrl);
