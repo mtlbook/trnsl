@@ -28,10 +28,10 @@ jobs:
         run: mkdir -p result
 
       - name: Run translation script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          node scripts/translate.js \
-            --json-url "${{ github.event.inputs.json_url }}" \
-            --api-key "${{ secrets.GEMINI_API_KEY }}"
+          node scripts/translate.js --json-url "${{ github.event.inputs.json_url }}"
         
       - name: Upload translated artifact
         uses: actions/upload-artifact@v4
