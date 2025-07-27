@@ -3,55 +3,36 @@ const path = require('path');
 const axios = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Get arguments
-const jsonUrl = process.argv[2];
-const chaptersPerRequest = parseInt(process.argv[3]) || 5;
-const geminiApiKey = process.env.GEMINI_API_KEY;
+// ... (keep previous constants and setup)
 
-if (!jsonUrl) {
-  console.error('Please provide a JSON URL as the first argument');
-  process.exit(1);
+async function extractJsonFromText(text) {
+  // First try parsing directly
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // If failed, try extracting JSON from markdown or other formatting
+    const jsonMatch = text.match(/```json\n([\s\S]*?)\n```|(\[\s*{[\s\S]*?}\s*\])/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[1] || jsonMatch[2]);
+      } catch (e) {
+        console.error('Failed to parse extracted JSON:', e.message);
+      }
+    }
+    throw new Error(`Could not extract valid JSON from response: ${text.substring(0, 100)}...`);
+  }
 }
-
-if (!geminiApiKey) {
-  console.error('GEMINI_API_KEY environment variable is not set');
-  process.exit(1);
-}
-
-// Extract ID from URL (assuming format like .../288571.json)
-const fileId = path.basename(jsonUrl, '.json');
-
-// Create results directory if it doesn't exist
-const resultsDir = path.join(__dirname, '../results');
-if (!fs.existsSync(resultsDir)) {
-  fs.mkdirSync(resultsDir);
-}
-
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(geminiApiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-const systemInstruction = `
-You are a strict translator. Do not modify the story, characters, or intent. 
-Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. 
-Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). 
-For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. 
-Dialogue must match the original's bluntness or subtlety, including punctuation.
-
-Return the JSON with the exact same structure but with translated text.
-`;
 
 async function translateChapters(chapters) {
   const prompt = `
   ${systemInstruction}
   
-  Translate the following JSON array of chapters from Chinese to English. 
-  Maintain the exact same JSON structure, only translating the text content.
-  
-  Input JSON:
+  Translate ONLY the text content of this JSON array from Chinese to English.
+  Return JUST the JSON array with identical structure but translated text.
+  Do not add any commentary or formatting outside the JSON.
+
+  Input:
   ${JSON.stringify(chapters, null, 2)}
-  
-  Translated JSON:
   `;
 
   try {
@@ -59,48 +40,63 @@ async function translateChapters(chapters) {
     const response = await result.response;
     const text = response.text();
     
-    // Extract JSON from the response (Gemini might add markdown formatting)
-    const jsonStart = text.indexOf('[');
-    const jsonEnd = text.lastIndexOf(']') + 1;
-    const jsonString = text.slice(jsonStart, jsonEnd);
+    // Clean response and parse
+    const cleanText = text.replace(/^```json|```$/g, '').trim();
+    return await extractJsonFromText(cleanText);
     
-    return JSON.parse(jsonString);
   } catch (error) {
-    console.error('Translation error:', error);
+    console.error('Full error details:', {
+      message: error.message,
+      responseText: error.response?.text?.substring(0, 200) || 'N/A'
+    });
     throw error;
   }
 }
 
 async function processJson() {
   try {
-    // Fetch the JSON
     const response = await axios.get(jsonUrl);
     const chapters = response.data;
     
     if (!Array.isArray(chapters)) {
-      throw new Error('Invalid JSON format: expected an array of chapters');
+      throw new Error('Expected JSON array');
     }
-    
-    // Process in batches
+
     const translatedChapters = [];
-    for (let i = 0; i < chapters.length; i += chaptersPerRequest) {
-      const batch = chapters.slice(i, i + chaptersPerRequest);
-      console.log(`Translating chapters ${i + 1}-${Math.min(i + chaptersPerRequest, chapters.length)}/${chapters.length}`);
+    let currentBatchSize = chaptersPerRequest;
+    let i = 0;
+
+    while (i < chapters.length) {
+      const batch = chapters.slice(i, i + currentBatchSize);
+      console.log(`Translating ${i + 1}-${Math.min(i + currentBatchSize, chapters.length)}/${chapters.length}`);
       
-      const translatedBatch = await translateChapters(batch);
-      translatedChapters.push(...translatedBatch);
-      
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        const translated = await translateChapters(batch);
+        translatedChapters.push(...translated);
+        i += currentBatchSize;
+        
+        // Reset batch size if it was reduced
+        currentBatchSize = chaptersPerRequest;
+        
+        // Rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        if (currentBatchSize > 1) {
+          // Reduce batch size and retry
+          currentBatchSize = Math.max(1, Math.floor(currentBatchSize / 2));
+          console.log(`Reducing batch size to ${currentBatchSize} due to error`);
+        } else {
+          throw error;
+        }
+      }
     }
-    
-    // Save the result
+
     const outputPath = path.join(resultsDir, `${fileId}.json`);
     fs.writeFileSync(outputPath, JSON.stringify(translatedChapters, null, 2));
-    console.log(`Translation complete. Saved to ${outputPath}`);
+    console.log(`Successfully saved ${translatedChapters.length} chapters to ${outputPath}`);
     
   } catch (error) {
-    console.error('Error processing JSON:', error);
+    console.error('Fatal processing error:', error.message);
     process.exit(1);
   }
 }
