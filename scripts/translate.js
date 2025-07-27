@@ -24,7 +24,7 @@ const id = idMatch[1];
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 // System instruction
 const systemInstruction = {
@@ -91,7 +91,7 @@ async function main() {
       translatedChapters.push(...translatedBatch);
       
       // Small delay between requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 7000));
     }
     
     // Ensure results directory exists
