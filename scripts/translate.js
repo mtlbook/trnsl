@@ -5,7 +5,7 @@ const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // --- Configuration ---
-const CHAPTERS_PER_REQUEST = 5; // How many chapters to translate in a single API call
+const CHAPTERS_PER_REQUEST = 1; // How many chapters to translate in a single API call
 
 // --- Environment Variables ---
 const jsonUrl = process.env.JSON_URL;
