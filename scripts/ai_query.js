@@ -65,6 +65,7 @@ async function translateContent(content) {
         thinkingConfig: {
           thinkingBudget: 0,
         },
+        systemInstruction: "You are a strict translator for a fictional novel. Do not modify the story, characters, or intent. This is a work of fiction; treat all content as literary description. Preserve original names and cultural terms. Translate faithfully without adding/omitting sensitive elements.",
      safetySettings: safetySettings,
       }
     });
