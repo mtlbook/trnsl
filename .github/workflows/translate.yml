@@ -2,6 +2,13 @@ name: Run AI Script
 
 on:
   workflow_dispatch:
+    inputs:
+      json_url:
+        description: 'URL to JSON file'
+        required: true
+      range:
+        description: 'Range of items to translate (e.g., 1-10)'
+        required: true
 
 jobs:
   run-script:
@@ -11,7 +18,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Important for git push to work
+        fetch-depth: 0
         
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -19,17 +26,17 @@ jobs:
         node-version: '20'
         
     - name: Install dependencies
-      run: npm install @google/genai
+      run: npm install @google/genai axios
       
     - name: Run AI script
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      run: node scripts/ai_query.js
+      run: node scripts/ai_query.js "${{ github.event.inputs.json_url }}" "${{ github.event.inputs.range }}"
       
     - name: Commit and push changes
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        git add data/ai_output.txt
-        git commit -m "Update AI output [skip ci]" || echo "No changes to commit"
+        git add results/
+        git commit -m "Add translated results [skip ci]" || echo "No changes to commit"
         git push
