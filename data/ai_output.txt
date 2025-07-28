@@ -1,1 +1,1 @@
-n
+AI learns from data to recognize patterns and make decisions or predictions.
