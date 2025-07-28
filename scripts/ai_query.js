@@ -68,9 +68,9 @@ async function main(jsonUrl, rangeStr) {
     const resultsDir = path.join(__dirname, '../results');
     await fs.mkdir(resultsDir, { recursive: true });
 
-    // Extract filename from URL (e.g., 693 from .../693.json)
+    // Extract filename from URL and create output filename with range
     const filename = path.basename(jsonUrl, '.json');
-    const outputPath = path.join(resultsDir, `${filename}_translated.json`);
+    const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
     // Process each item in range
     const translatedItems = [];
