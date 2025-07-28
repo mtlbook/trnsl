@@ -41,21 +41,24 @@ async function main() {
   }
   
   const args = process.argv.slice(2);
-  const jsonUrlArg = args.find(arg => arg.startsWith('--json-url='));
+  const jsonUrlIndex = args.indexOf('--json-url');
+  let jsonUrl;
 
-  if (!jsonUrlArg) {
-    console.error("Usage: node script/translate.js --json-url=<URL>");
+  if (jsonUrlIndex > -1 && args[jsonUrlIndex + 1]) {
+    jsonUrl = args[jsonUrlIndex + 1];
+  } else {
+    console.error("Usage: node script/translate.js --json-url <URL>");
     process.exit(1);
   }
 
-  const jsonUrl = jsonUrlArg.split('=')[1];
-
   try {
+    console.log(`Fetching JSON from: ${jsonUrl}`);
     const response = await fetch(jsonUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch JSON: ${response.statusText}`);
     }
     const chapters = await response.json();
+    console.log(`Found ${chapters.length} chapters to translate.`);
 
     const translatedChapters = [];
     for (let i = 0; i < chapters.length; i += CHAPTERS_PER_REQUEST) {
@@ -66,8 +69,9 @@ async function main() {
     }
 
     const fileId = path.basename(new URL(jsonUrl).pathname, '.json');
-    const resultFolderPath = path.join(process.cwd(), 'result');
-    const outputFilePath = path.join(resultFolderPath, `${fileId}.json`);
+    // Save the output to the 'data' folder instead of 'result'
+    const outputFolderPath = path.join(process.cwd(), 'data');
+    const outputFilePath = path.join(outputFolderPath, `${fileId}.json`);
 
     fs.writeFileSync(outputFilePath, JSON.stringify(translatedChapters, null, 2), 'utf-8');
     console.log(`Translation complete. Translated file saved to: ${outputFilePath}`);
