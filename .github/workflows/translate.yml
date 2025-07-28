@@ -1,7 +1,9 @@
 name: Run AI Script
 
 on:
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:  # Manual triggering
+  schedule:
+    - cron: '0 12 * * *'  # Daily at 12:00 UTC
 
 jobs:
   run-script:
@@ -16,9 +18,8 @@ jobs:
       with:
         node-version: '20'
         
-    - name: Install dependencies
+    - name: Install @google/genai directly
       run: npm install @google/genai
-      working-directory: ./
       
     - name: Run AI script
       env:
