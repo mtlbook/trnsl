@@ -59,7 +59,7 @@ function parseRange(rangeStr, maxItems) {
 async function translateContent(content) {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: content,
       config: {
         thinkingConfig: {
