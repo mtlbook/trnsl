@@ -53,33 +53,31 @@ function parseRange(rangeStr, maxItems) {
   if (isNaN(end)) end = maxItems;
   if (start < 1) start = 1;
   if (end > maxItems) end = maxItems;
-  if (start > end) [start, end] = [end, start]; // Swap if reversed
+  if (start > end) [start, end] = [end, start];
 
   return { start, end };
 }
 
 async function translateItem(item) {
   try {
-    // Combine title and content with clear delimiters
     const combinedText = `[TITLE]${item.title}[/TITLE]\n[CONTENT]${item.content}[/CONTENT]`;
     
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: combinedText,
       config: {
-        systemInstruction: `You are a professional translator. Translate the following Chinese text to English while maintaining:
-        1. Keep all numbers and special characters exactly as-is
-        2. Preserve all proper nouns and names
-        3. Maintain original formatting and line breaks
-        4. Return the translation in the same structured format:
-           [TITLE]Translated Title[/TITLE]
-           [CONTENT]Translated Content[/CONTENT]`,
+        systemInstruction: `Translate Chinese to English while maintaining:
+        1. Preserve numbers and special characters
+        2. Keep proper nouns unchanged
+        3. Maintain original formatting
+        4. Return in format:
+           [TITLE]Translation[/TITLE]
+           [CONTENT]Translation[/CONTENT]`,
         safetySettings: safetySettings,
       }
     });
 
-    if (response && response.text) {
-      // Extract translated title and content
+    if (response?.text) {
       const titleMatch = response.text.match(/\[TITLE\](.*?)\[\/TITLE\]/s);
       const contentMatch = response.text.match(/\[CONTENT\](.*?)\[\/CONTENT\]/s);
       
@@ -91,11 +89,11 @@ async function translateItem(item) {
           model: MODEL_NAME
         };
       }
-      throw new Error('Failed to parse translated output');
+      throw new Error('Failed to parse response');
     }
-    throw new Error('Empty response from API');
+    throw new Error('Empty API response');
   } catch (error) {
-    console.error('Translation error:', error.message);
+    console.error('Translation failed:', error.message);
     return {
       title: item.title,
       content: item.content,
@@ -107,54 +105,41 @@ async function translateItem(item) {
 
 async function main(jsonUrl, rangeStr) {
   try {
-    // Fetch and parse the JSON
     const jsonData = await fetchJson(jsonUrl);
-    if (!Array.isArray(jsonData)) {
-      throw new Error('Invalid JSON format: Expected an array');
-    }
+    if (!Array.isArray(jsonData)) throw new Error('Expected JSON array');
 
-    // Parse the range
     const { start, end } = parseRange(rangeStr, jsonData.length);
-    console.log(`Processing items ${start} to ${end} of ${jsonData.length}`);
+    console.log(`Processing items ${start}-${end} of ${jsonData.length}`);
 
-    // Create results directory
     const resultsDir = path.join(__dirname, '../results');
     await fs.mkdir(resultsDir, { recursive: true });
 
-    // Extract filename from URL and create output filename with range
     const filename = path.basename(jsonUrl, '.json');
     const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
-    // Process each item in range
     const translatedItems = [];
     let successCount = 0;
-    let failCount = 0;
 
     for (let i = start - 1; i < end; i++) {
       const item = jsonData[i];
-      console.log(`Translating item ${i + 1}: ${item.title.substring(0, 30)}...`);
+      console.log(`Translating ${i + 1}: ${item.title.substring(0, 30)}...`);
       
       const result = await translateItem(item);
       translatedItems.push(result);
-
       if (result.translated) successCount++;
-      else failCount++;
     }
 
-    // Save the translated items
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
-    console.log(`\nTranslation summary:`);
-    console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
-    console.log(`- Failed to translate (${FALLBACK_MODEL}): ${failCount}`);
-    console.log(`Translated results saved to ${outputPath}`);
+    console.log(`\nCompleted: ${successCount} successful, ${end - start + 1 - successCount} failed`);
+    console.log(`Saved to: ${outputPath}`);
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Fatal error:', error);
     process.exit(1);
   }
 }
 
-// Get command line arguments
+// Execute
 const [jsonUrl, range] = process.argv.slice(2);
 if (!jsonUrl || !range) {
   console.error('Usage: node ai_query.js <json_url> <range>');
