@@ -31,7 +31,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          node script/translate.js --json-url "${{ github.event.inputs.json_url }}"
+          node scripts/translate.js --json-url "${{ github.event.inputs.json_url }}"
         
       - name: Upload translated artifact
         uses: actions/upload-artifact@v4
