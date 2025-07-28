@@ -69,6 +69,7 @@ async function translateContent(content) {
      safetySettings: safetySettings,
       }
     });
+    console.log('Full API response:', JSON.stringify(response, null, 2));
     return response.text;
   } catch (error) {
     console.error('Translation error:', error);
