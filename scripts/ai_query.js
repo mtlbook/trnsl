@@ -65,15 +65,25 @@ async function translateContent(content) {
         thinkingConfig: {
           thinkingBudget: 0,
         },
-        systemInstruction: "You are a strict translator for a fictional novel. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-     safetySettings: safetySettings,
+        systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
+        safetySettings: safetySettings,
       }
     });
-    console.log('Full API response:', JSON.stringify(response, null, 2));
-    return response.text;
+
+    // Check if response contains text
+    if (response && response.text) {
+      return {
+        translated: true,
+        content: response.text
+      };
+    }
+    throw new Error('Empty response from API');
   } catch (error) {
-    console.error('Translation error:', error);
-    return content; // Return original if translation fails
+    console.error('Translation error:', error.message);
+    return {
+      translated: false,
+      content: content // Return original content
+    };
   }
 }
 
@@ -99,19 +109,32 @@ async function main(jsonUrl, rangeStr) {
 
     // Process each item in range
     const translatedItems = [];
+    let successCount = 0;
+    let failCount = 0;
+
     for (let i = start - 1; i < end; i++) {
       const item = jsonData[i];
       console.log(`Translating item ${i + 1}: ${item.title}`);
       
-      const translatedContent = await translateContent(item.content);
+      const translationResult = await translateContent(item.content);
       translatedItems.push({
         title: item.title,
-        content: translatedContent
+        content: translationResult.content,
+        translated: translationResult.translated
       });
+
+      if (translationResult.translated) {
+        successCount++;
+      } else {
+        failCount++;
+      }
     }
 
     // Save the translated items
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
+    console.log(`\nTranslation summary:`);
+    console.log(`- Successfully translated: ${successCount}`);
+    console.log(`- Failed to translate (original content kept): ${failCount}`);
     console.log(`Translated results saved to ${outputPath}`);
 
   } catch (error) {
