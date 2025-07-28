@@ -7,7 +7,7 @@ import axios from 'axios';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-pro";
+const MODEL_NAME = "gemini-2.5-flash-lite";
 const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
@@ -85,9 +85,7 @@ async function translateItem(item) {
       
       if (titleMatch && contentMatch) {
         return {
-          original_title: item.title,
           title: titleMatch[1].trim(),
-          original_content: item.content,
           content: contentMatch[1].trim(),
           translated: true,
           model: MODEL_NAME
@@ -99,10 +97,8 @@ async function translateItem(item) {
   } catch (error) {
     console.error('Translation error:', error.message);
     return {
-      original_title: item.title,
-      title: item.title, // Fallback to original
-      original_content: item.content,
-      content: item.content, // Fallback to original
+      title: item.title,
+      content: item.content,
       translated: false,
       model: FALLBACK_MODEL
     };
