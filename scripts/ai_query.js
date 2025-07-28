@@ -65,7 +65,7 @@ async function translateContent(content) {
         thinkingConfig: {
           thinkingBudget: 0,
         },
-        systemInstruction: "You are a strict translator for a fictional novel. Do not modify the story, characters, or intent. This is a work of fiction; treat all content as literary description. Preserve original names and cultural terms. Translate faithfully without adding/omitting sensitive elements.",
+        systemInstruction: "You are a strict translator for a fictional novel. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
      safetySettings: safetySettings,
       }
     });
