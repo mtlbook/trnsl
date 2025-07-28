@@ -58,31 +58,52 @@ function parseRange(rangeStr, maxItems) {
   return { start, end };
 }
 
-async function translateContent(content) {
+async function translateItem(item) {
   try {
+    // Combine title and content with clear delimiters
+    const combinedText = `[TITLE]${item.title}[/TITLE]\n[CONTENT]${item.content}[/CONTENT]`;
+    
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: content,
+      contents: combinedText,
       config: {
-        systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
+        systemInstruction: `You are a professional translator. Translate the following Chinese text to English while maintaining:
+        1. Keep all numbers and special characters exactly as-is
+        2. Preserve all proper nouns and names
+        3. Maintain original formatting and line breaks
+        4. Return the translation in the same structured format:
+           [TITLE]Translated Title[/TITLE]
+           [CONTENT]Translated Content[/CONTENT]`,
         safetySettings: safetySettings,
       }
     });
 
-    // Check if response contains text
     if (response && response.text) {
-      return {
-        translated: true,
-        content: response.text,
-        model: MODEL_NAME
-      };
+      // Extract translated title and content
+      const titleMatch = response.text.match(/\[TITLE\](.*?)\[\/TITLE\]/s);
+      const contentMatch = response.text.match(/\[CONTENT\](.*?)\[\/CONTENT\]/s);
+      
+      if (titleMatch && contentMatch) {
+        return {
+          original_title: item.title,
+          title: titleMatch[1].trim(),
+          original_content: item.content,
+          content: contentMatch[1].trim(),
+          translated: true,
+          model: MODEL_NAME
+        };
+      }
+      throw new Error('Failed to parse translated output');
     }
     throw new Error('Empty response from API');
   } catch (error) {
     console.error('Translation error:', error.message);
     return {
+      original_title: item.title,
+      title: item.title, // Fallback to original
+      original_content: item.content,
+      content: item.content, // Fallback to original
       translated: false,
-      content: content, // Return original content
       model: FALLBACK_MODEL
     };
   }
@@ -115,21 +136,13 @@ async function main(jsonUrl, rangeStr) {
 
     for (let i = start - 1; i < end; i++) {
       const item = jsonData[i];
-      console.log(`Translating item ${i + 1}: ${item.title}`);
+      console.log(`Translating item ${i + 1}: ${item.title.substring(0, 30)}...`);
       
-      const translationResult = await translateContent(item.content);
-      translatedItems.push({
-        title: item.title,
-        content: translationResult.content,
-        translated: translationResult.translated,
-        model: translationResult.model
-      });
+      const result = await translateItem(item);
+      translatedItems.push(result);
 
-      if (translationResult.translated) {
-        successCount++;
-      } else {
-        failCount++;
-      }
+      if (result.translated) successCount++;
+      else failCount++;
     }
 
     // Save the translated items
