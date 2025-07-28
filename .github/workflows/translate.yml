@@ -24,17 +24,17 @@ jobs:
       - name: Install dependencies
         run: npm install @google/generative-ai node-fetch
 
-      - name: Create result directory
-        run: mkdir -p result
+      - name: Create data directory
+        run: mkdir -p data
 
       - name: Run translation script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          node scripts/translate.js --json-url "${{ github.event.inputs.json_url }}"
+          node script/translate.js --json-url "${{ github.event.inputs.json_url }}"
         
       - name: Upload translated artifact
         uses: actions/upload-artifact@v4
         with:
           name: translated-json
-          path: result/
+          path: data/
