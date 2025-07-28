@@ -53,51 +53,36 @@ function parseRange(rangeStr, maxItems) {
   if (isNaN(end)) end = maxItems;
   if (start < 1) start = 1;
   if (end > maxItems) end = maxItems;
-  if (start > end) [start, end] = [end, start];
+  if (start > end) [start, end] = [end, start]; // Swap if reversed
 
   return { start, end };
 }
 
-async function translateItem(item) {
+async function translateContent(content) {
   try {
-    const combinedText = `[TITLE]${item.title}[/TITLE]\n[CONTENT]${item.content}[/CONTENT]`;
-    
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: combinedText,
+      contents: content,
       config: {
-        systemInstruction: `Translate Chinese to English while maintaining:
-        1. Preserve numbers and special characters
-        2. Keep proper nouns unchanged
-        3. Maintain original formatting
-        4. Return in format:
-           [TITLE]Translation[/TITLE]
-           [CONTENT]Translation[/CONTENT]`,
+        systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
         safetySettings: safetySettings,
       }
     });
 
-    if (response?.text) {
-      const titleMatch = response.text.match(/\[TITLE\](.*?)\[\/TITLE\]/s);
-      const contentMatch = response.text.match(/\[CONTENT\](.*?)\[\/CONTENT\]/s);
-      
-      if (titleMatch && contentMatch) {
-        return {
-          title: titleMatch[1].trim(),
-          content: contentMatch[1].trim(),
-          translated: true,
-          model: MODEL_NAME
-        };
-      }
-      throw new Error('Failed to parse response');
+    // Check if response contains text
+    if (response && response.text) {
+      return {
+        translated: true,
+        content: response.text,
+        model: MODEL_NAME
+      };
     }
-    throw new Error('Empty API response');
+    throw new Error('Empty response from API');
   } catch (error) {
-    console.error('Translation failed:', error.message);
+    console.error('Translation error:', error.message);
     return {
-      title: item.title,
-      content: item.content,
       translated: false,
+      content: content, // Return original content
       model: FALLBACK_MODEL
     };
   }
@@ -105,41 +90,62 @@ async function translateItem(item) {
 
 async function main(jsonUrl, rangeStr) {
   try {
+    // Fetch and parse the JSON
     const jsonData = await fetchJson(jsonUrl);
-    if (!Array.isArray(jsonData)) throw new Error('Expected JSON array');
+    if (!Array.isArray(jsonData)) {
+      throw new Error('Invalid JSON format: Expected an array');
+    }
 
+    // Parse the range
     const { start, end } = parseRange(rangeStr, jsonData.length);
-    console.log(`Processing items ${start}-${end} of ${jsonData.length}`);
+    console.log(`Processing items ${start} to ${end} of ${jsonData.length}`);
 
+    // Create results directory
     const resultsDir = path.join(__dirname, '../results');
     await fs.mkdir(resultsDir, { recursive: true });
 
+    // Extract filename from URL and create output filename with range
     const filename = path.basename(jsonUrl, '.json');
     const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
+    // Process each item in range
     const translatedItems = [];
     let successCount = 0;
+    let failCount = 0;
 
     for (let i = start - 1; i < end; i++) {
       const item = jsonData[i];
-      console.log(`Translating ${i + 1}: ${item.title.substring(0, 30)}...`);
+      console.log(`Translating item ${i + 1}: ${item.title}`);
       
-      const result = await translateItem(item);
-      translatedItems.push(result);
-      if (result.translated) successCount++;
+      const translationResult = await translateContent(item.content);
+      translatedItems.push({
+        title: item.title,
+        content: translationResult.content,
+        translated: translationResult.translated,
+        model: translationResult.model
+      });
+
+      if (translationResult.translated) {
+        successCount++;
+      } else {
+        failCount++;
+      }
     }
 
+    // Save the translated items
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
-    console.log(`\nCompleted: ${successCount} successful, ${end - start + 1 - successCount} failed`);
-    console.log(`Saved to: ${outputPath}`);
+    console.log(`\nTranslation summary:`);
+    console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
+    console.log(`- Failed to translate (${FALLBACK_MODEL}): ${failCount}`);
+    console.log(`Translated results saved to ${outputPath}`);
 
   } catch (error) {
-    console.error('Fatal error:', error);
+    console.error('Error:', error);
     process.exit(1);
   }
 }
 
-// Execute
+// Get command line arguments
 const [jsonUrl, range] = process.argv.slice(2);
 if (!jsonUrl || !range) {
   console.error('Usage: node ai_query.js <json_url> <range>');
