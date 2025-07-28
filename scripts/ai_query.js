@@ -7,6 +7,8 @@ import axios from 'axios';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
+const MODEL_NAME = "gemini-2.5-pro";
+const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
   {
@@ -59,7 +61,7 @@ function parseRange(rangeStr, maxItems) {
 async function translateContent(content) {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: MODEL_NAME,
       contents: content,
       config: {
         systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
@@ -71,7 +73,8 @@ async function translateContent(content) {
     if (response && response.text) {
       return {
         translated: true,
-        content: response.text
+        content: response.text,
+        model: MODEL_NAME
       };
     }
     throw new Error('Empty response from API');
@@ -79,7 +82,8 @@ async function translateContent(content) {
     console.error('Translation error:', error.message);
     return {
       translated: false,
-      content: content // Return original content
+      content: content, // Return original content
+      model: FALLBACK_MODEL
     };
   }
 }
@@ -117,7 +121,8 @@ async function main(jsonUrl, rangeStr) {
       translatedItems.push({
         title: item.title,
         content: translationResult.content,
-        translated: translationResult.translated
+        translated: translationResult.translated,
+        model: translationResult.model
       });
 
       if (translationResult.translated) {
@@ -130,8 +135,8 @@ async function main(jsonUrl, rangeStr) {
     // Save the translated items
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     console.log(`\nTranslation summary:`);
-    console.log(`- Successfully translated: ${successCount}`);
-    console.log(`- Failed to translate (original content kept): ${failCount}`);
+    console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
+    console.log(`- Failed to translate (${FALLBACK_MODEL}): ${failCount}`);
     console.log(`Translated results saved to ${outputPath}`);
 
   } catch (error) {
