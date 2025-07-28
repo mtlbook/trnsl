@@ -24,7 +24,7 @@ function parseRange(rangeStr, maxItems) {
   let end = endStr ? parseInt(endStr) : start;
 
   // Validate range
-  if (isNaN(start) start = 1;
+  if (isNaN(start)) start = 1;
   if (isNaN(end)) end = maxItems;
   if (start < 1) start = 1;
   if (end > maxItems) end = maxItems;
