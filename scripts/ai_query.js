@@ -179,9 +179,21 @@ async function translateTitles(items) {
 }
 
 function splitIntoSentences(text) {
-  // Enhanced sentence splitting that handles Chinese punctuation
-  return text.split(/(?<=[。！？；\n])+/g)
-    .map(s => s.trim())
+  // Alternative sentence splitting that works in all Node.js versions
+  return text.split(/([。！？；\n]+)/g)
+    .reduce((acc, val, i) => {
+      if (i % 2 === 0) {
+        // Text between delimiters
+        if (val.trim()) acc.push(val.trim());
+      } else {
+        // Delimiters themselves
+        if (acc.length > 0) {
+          // Append delimiter to previous sentence
+          acc[acc.length - 1] += val;
+        }
+      }
+      return acc;
+    }, [])
     .filter(s => s.length > 0);
 }
 
