@@ -214,36 +214,36 @@ async function main(jsonUrl, rangeStr) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
-    // Translate all titles first with fallback strategies
-    console.log(`Found ${jsonData.length} items to process`);
-    const titleTranslations = await translateTitles(jsonData);
-    
-    // Parse the range
+    // Parse the range FIRST
     const { start, end } = parseRange(rangeStr, jsonData.length);
-    console.log(`\nProcessing content for items ${start} to ${end} of ${jsonData.length}`);
+    console.log(`Processing items ${start} to ${end} of ${jsonData.length}`);
 
-    // Create results directory
+    // Extract ONLY the items in range
+    const itemsInRange = jsonData.slice(start - 1, end);
+
+    // Translate ONLY the titles in range
+    console.log(`Translating ${itemsInRange.length} titles...`);
+    const titleTranslations = await translateTitles(itemsInRange);
+    
+    // Rest of your processing...
     const resultsDir = path.join(__dirname, '../results');
     await fs.mkdir(resultsDir, { recursive: true });
 
-    // Prepare output filename
     const filename = path.basename(jsonUrl, '.json');
     const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
-    // Process each item in range
     const translatedItems = [];
     let contentSuccessCount = 0;
     let contentFailCount = 0;
 
-    for (let i = start - 1; i < end; i++) {
-      const item = jsonData[i];
+    for (let i = 0; i < itemsInRange.length; i++) {
+      const item = itemsInRange[i];
       const titleResult = titleTranslations[i];
       
-      console.log(`\n[Item ${i + 1}]`);
+      console.log(`\n[Item ${start + i}]`);
       console.log(`Original Title: ${item.title}`);
       console.log(`Translated Title: ${titleResult.translated}`);
       
-      // Translate content
       console.log(`Translating content...`);
       const contentResult = await translateContent(item.content);
       
@@ -267,22 +267,17 @@ async function main(jsonUrl, rangeStr) {
       }
     }
 
-    // Save results
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     
-    // Generate summary
     const titleSuccessCount = titleTranslations.filter(t => t.success).length;
     const batchTitleCount = titleTranslations.filter(t => t.batch).length;
     
     console.log(`\n=== Translation Summary ===`);
-    console.log(`Titles:`);
-    console.log(`- Successfully translated: ${titleSuccessCount}/${jsonData.length}`);
-    console.log(`  - Batch translated: ${batchTitleCount}`);
-    console.log(`  - Individually translated: ${titleSuccessCount - batchTitleCount}`);
-    console.log(`- Failed: ${jsonData.length - titleSuccessCount}`);
-    console.log(`Content:`);
-    console.log(`- Successfully translated (${CONTENT_MODEL}): ${contentSuccessCount}`);
-    console.log(`- Failed (${FALLBACK_MODEL}): ${contentFailCount}`);
+    console.log(`Titles (${start}-${end}):`);
+    console.log(`- Successfully translated: ${titleSuccessCount}/${itemsInRange.length}`);
+    console.log(`Content (${start}-${end}):`);
+    console.log(`- Successfully translated: ${contentSuccessCount}`);
+    console.log(`- Failed: ${contentFailCount}`);
     console.log(`\nResults saved to: ${outputPath}`);
 
   } catch (error) {
