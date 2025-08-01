@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ai = new GoogleGenAI({});
 const TITLE_MODEL = "gemini-2.5-pro";
 const CONTENT_MODEL = "gemini-2.5-flash";
+const FALLBACK_CONTENT_MODEL = "gemini-1.5-flash-lite";
 const FALLBACK_MODEL = "google translate";
 const BATCH_SIZE = 20;
 const DELAY_BETWEEN_REQUESTS = 200; // ms
@@ -70,7 +71,7 @@ async function translateTitleBatch(titles, modelName) {
       contents: prompt,
       config: {
         safetySettings: safetySettings,
-        temperature: 0.3 // Lower temperature for more consistent results
+        temperature: 0.3
       }
     });
 
@@ -177,7 +178,77 @@ async function translateTitles(items) {
   return titleResults;
 }
 
+function splitIntoSentences(text) {
+  // Enhanced sentence splitting that handles Chinese punctuation
+  return text.split(/(?<=[。！？；\n])+/g)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+}
+
+async function translateContentByPhrases(content) {
+  const phrases = splitIntoSentences(content);
+  let translatedPhrases = [];
+  let failedPhrases = 0;
+
+  for (const [index, phrase] of phrases.entries()) {
+    try {
+      // First try with primary content model
+      const response = await ai.models.generateContent({
+        model: CONTENT_MODEL,
+        contents: phrase,
+        config: {
+          systemInstruction: "Translate this text exactly without modification. Preserve names and special terms.",
+          safetySettings: safetySettings,
+          temperature: 0.3
+        }
+      });
+
+      if (response && response.text) {
+        translatedPhrases.push(response.text);
+        continue;
+      }
+      throw new Error('Empty phrase response');
+    } catch (error) {
+      console.error(`Phrase ${index + 1}/${phrases.length} failed (${CONTENT_MODEL}), trying fallback model...`);
+      
+      // Fallback to lighter model
+      try {
+        const lightResponse = await ai.models.generateContent({
+          model: FALLBACK_CONTENT_MODEL,
+          contents: phrase,
+          config: {
+            safetySettings: safetySettings,
+            temperature: 0.2
+          }
+        });
+
+        if (lightResponse && lightResponse.text) {
+          translatedPhrases.push(lightResponse.text);
+        } else {
+          throw new Error('Empty light model response');
+        }
+      } catch (lightError) {
+        console.error(`Phrase ${index + 1}/${phrases.length} completely failed, keeping original`);
+        translatedPhrases.push(`【保留原文】${phrase}`);
+        failedPhrases++;
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_REQUESTS));
+  }
+
+  return {
+    translated: failedPhrases < phrases.length / 2,
+    content: translatedPhrases.join(' '),
+    model: `${CONTENT_MODEL} + ${FALLBACK_CONTENT_MODEL}`,
+    method: 'phrases',
+    successRate: ((phrases.length - failedPhrases) / phrases.length * 100).toFixed(1) + '%',
+    failedPhrases
+  };
+}
+
 async function translateContent(content) {
+  // First try full content translation
   try {
     const response = await ai.models.generateContent({
       model: CONTENT_MODEL,
@@ -193,17 +264,14 @@ async function translateContent(content) {
       return {
         translated: true,
         content: response.text,
-        model: CONTENT_MODEL
+        model: CONTENT_MODEL,
+        method: 'full'
       };
     }
     throw new Error('Empty response from API');
   } catch (error) {
-    console.error('Content translation error:', error.message);
-    return {
-      translated: false,
-      content: content,
-      model: FALLBACK_MODEL
-    };
+    console.error('Full content translation failed, trying phrase-by-phrase...');
+    return await translateContentByPhrases(content);
   }
 }
 
@@ -225,7 +293,7 @@ async function main(jsonUrl, rangeStr) {
     console.log(`Translating ${itemsInRange.length} titles...`);
     const titleTranslations = await translateTitles(itemsInRange);
     
-    // Rest of your processing...
+    // Create results directory
     const resultsDir = path.join(__dirname, '../results');
     await fs.mkdir(resultsDir, { recursive: true });
 
@@ -253,10 +321,13 @@ async function main(jsonUrl, rangeStr) {
         content: contentResult.content,
         metadata: {
           titleTranslated: titleResult.success,
-          contentTranslated: contentResult.translated,
           titleModel: titleResult.model,
-          contentModel: contentResult.model,
-          batchTranslated: titleResult.batch
+          titleBatch: titleResult.batch,
+          contentTranslated: contentResult.translated,
+          contentMethod: contentResult.method,
+          contentModels: contentResult.model,
+          contentSuccessRate: contentResult.successRate,
+          contentFailedPhrases: contentResult.failedPhrases || 0
         }
       });
 
@@ -265,6 +336,10 @@ async function main(jsonUrl, rangeStr) {
       } else {
         contentFailCount++;
       }
+
+      // Progress update
+      const progress = ((i + 1) / itemsInRange.length * 100).toFixed(1);
+      console.log(`Progress: ${progress}% (${i + 1}/${itemsInRange.length})`);
     }
 
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
@@ -275,9 +350,15 @@ async function main(jsonUrl, rangeStr) {
     console.log(`\n=== Translation Summary ===`);
     console.log(`Titles (${start}-${end}):`);
     console.log(`- Successfully translated: ${titleSuccessCount}/${itemsInRange.length}`);
+    console.log(`  - Batch translated: ${batchTitleCount}`);
+    console.log(`  - Individually translated: ${titleSuccessCount - batchTitleCount}`);
     console.log(`Content (${start}-${end}):`);
     console.log(`- Successfully translated: ${contentSuccessCount}`);
-    console.log(`- Failed: ${contentFailCount}`);
+    console.log(`- Partially translated: ${contentFailCount}`);
+    console.log(`- Average phrase success rate: ${translatedItems.reduce((sum, item) => {
+      const rate = parseFloat(item.metadata.contentSuccessRate) || 0;
+      return sum + rate;
+    }, 0) / translatedItems.length}%`);
     console.log(`\nResults saved to: ${outputPath}`);
 
   } catch (error) {
@@ -289,8 +370,8 @@ async function main(jsonUrl, rangeStr) {
 // Command line execution
 const [jsonUrl, range] = process.argv.slice(2);
 if (!jsonUrl || !range) {
-  console.error('Usage: node ai_query.js <json_url> <range>');
-  console.error('Example: node ai_query.js https://example.com/novel.json 5-20');
+  console.error('Usage: node ai_translator.js <json_url> <range>');
+  console.error('Example: node ai_translator.js https://example.com/novel.json 1-200');
   process.exit(1);
 }
 
