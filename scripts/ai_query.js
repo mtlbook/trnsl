@@ -7,7 +7,8 @@ import axios from 'axios';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-flash";
+const TITLE_MODEL = "gemini-2.5-pro"; // More capable model for titles
+const CONTENT_MODEL = "gemini-2.5-flash"; // Faster model for content
 const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
@@ -48,44 +49,70 @@ function parseRange(rangeStr, maxItems) {
   let start = parseInt(startStr);
   let end = endStr ? parseInt(endStr) : start;
 
-  // Validate range
   if (isNaN(start)) start = 1;
   if (isNaN(end)) end = maxItems;
   if (start < 1) start = 1;
   if (end > maxItems) end = maxItems;
-  if (start > end) [start, end] = [end, start]; // Swap if reversed
+  if (start > end) [start, end] = [end, start];
 
   return { start, end };
 }
 
-async function translateContent(content) {
+async function translateWithModel(content, modelName, isTitle = false) {
   try {
+    const systemInstruction = isTitle 
+      ? "You are a strict translator for novel/book titles. Preserve the original meaning and style while making it natural in English. Keep character names but translate other elements when it improves readability. Maintain the original tone (mysterious, dramatic, humorous, etc.)."
+      : "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.";
+
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: modelName,
       contents: content,
       config: {
-        systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
+        systemInstruction: systemInstruction,
         safetySettings: safetySettings,
       }
     });
 
-    // Check if response contains text
     if (response && response.text) {
       return {
         translated: true,
         content: response.text,
-        model: MODEL_NAME
+        model: modelName
       };
     }
     throw new Error('Empty response from API');
   } catch (error) {
-    console.error('Translation error:', error.message);
+    console.error(`Translation error (${modelName}):`, error.message);
     return {
       translated: false,
-      content: content, // Return original content
+      content: content,
       model: FALLBACK_MODEL
     };
   }
+}
+
+async function translateTitles(items) {
+  console.log("\nTranslating all titles first...");
+  const titleResults = [];
+  
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    process.stdout.write(`Translating title ${i + 1}/${items.length}: ${item.title}... `);
+    
+    const result = await translateWithModel(item.title, TITLE_MODEL, true);
+    titleResults.push({
+      original: item.title,
+      translated: result.content,
+      success: result.translated
+    });
+    
+    process.stdout.write(result.translated ? "✓\n" : "✗ (using original)\n");
+    
+    // Add small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  return titleResults;
 }
 
 async function main(jsonUrl, rangeStr) {
@@ -96,9 +123,12 @@ async function main(jsonUrl, rangeStr) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
+    // First translate all titles
+    const titleTranslations = await translateTitles(jsonData);
+    
     // Parse the range
     const { start, end } = parseRange(rangeStr, jsonData.length);
-    console.log(`Processing items ${start} to ${end} of ${jsonData.length}`);
+    console.log(`\nProcessing content for items ${start} to ${end} of ${jsonData.length}`);
 
     // Create results directory
     const resultsDir = path.join(__dirname, '../results');
@@ -110,33 +140,44 @@ async function main(jsonUrl, rangeStr) {
 
     // Process each item in range
     const translatedItems = [];
-    let successCount = 0;
-    let failCount = 0;
+    let contentSuccessCount = 0;
+    let contentFailCount = 0;
 
     for (let i = start - 1; i < end; i++) {
       const item = jsonData[i];
-      console.log(`Translating item ${i + 1}: ${item.title}`);
+      const titleResult = titleTranslations[i];
       
-      const translationResult = await translateContent(item.content);
+      console.log(`\nTranslating item ${i + 1}:`);
+      console.log(`Original title: ${item.title}`);
+      console.log(`Translated title: ${titleResult.translated}`);
+      
+      // Translate content
+      console.log(`Translating content...`);
+      const contentResult = await translateWithModel(item.content, CONTENT_MODEL);
+      
       translatedItems.push({
-        title: item.title,
-        content: translationResult.content,
-        translated: translationResult.translated,
-        model: translationResult.model
+        originalTitle: item.title,
+        title: titleResult.translated,
+        content: contentResult.content,
+        titleTranslated: titleResult.success,
+        contentTranslated: contentResult.translated,
+        titleModel: titleResult.success ? TITLE_MODEL : FALLBACK_MODEL,
+        contentModel: contentResult.model
       });
 
-      if (translationResult.translated) {
-        successCount++;
+      if (contentResult.translated) {
+        contentSuccessCount++;
       } else {
-        failCount++;
+        contentFailCount++;
       }
     }
 
     // Save the translated items
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     console.log(`\nTranslation summary:`);
-    console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
-    console.log(`- Failed to translate (${FALLBACK_MODEL}): ${failCount}`);
+    console.log(`- Titles translated (${TITLE_MODEL}): ${titleTranslations.filter(t => t.success).length}/${titleTranslations.length}`);
+    console.log(`- Content successfully translated (${CONTENT_MODEL}): ${contentSuccessCount}`);
+    console.log(`- Content failed to translate (${FALLBACK_MODEL}): ${contentFailCount}`);
     console.log(`Translated results saved to ${outputPath}`);
 
   } catch (error) {
