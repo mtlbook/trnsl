@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ai = new GoogleGenAI({});
 const MODEL_NAME = "gemini-2.5-flash";
 const TITLE_MODEL = "gemini-2.5-pro";
-const FALLBACK_MODEL = "google translate";
+const FALLBACK_MODEL = "Google Translate API";
 
 const safetySettings = [
   {
@@ -58,6 +58,33 @@ function parseRange(rangeStr, maxItems) {
   return { start, end };
 }
 
+async function googleTranslate(text) {
+  try {
+    const url = new URL('https://translate.googleapis.com/translate_a/single');
+    const params = {
+      client: 'gtx',
+      sl: 'zh-TW',
+      tl: 'en',
+      dt: 't',
+      q: text,
+      hl: 'en',
+      ie: 'UTF-8',
+      oe: 'UTF-8'
+    };
+    
+    Object.keys(params).forEach(key => 
+      url.searchParams.append(key, params[key]));
+    
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+    const data = await response.json();
+    return data[0].map(item => item[0]).join('');
+  } catch (error) {
+    console.error('Google Translate API error:', error);
+    return text; // Return original text if translation fails
+  }
+}
+
 async function translateTitlesBatch(titles) {
   try {
     const response = await ai.models.generateContent({
@@ -75,7 +102,9 @@ async function translateTitlesBatch(titles) {
     throw new Error('Empty response from API');
   } catch (error) {
     console.error('Batch title translation error:', error.message);
-    return null;
+    // Fallback to Google Translate
+    console.log('Falling back to Google Translate for titles...');
+    return Promise.all(titles.map(title => googleTranslate(title)));
   }
 }
 
@@ -96,7 +125,8 @@ async function translateTitleSingle(title) {
     throw new Error('Empty response from API');
   } catch (error) {
     console.error('Single title translation error:', error.message);
-    return title;
+    // Fallback to Google Translate
+    return googleTranslate(title);
   }
 }
 
@@ -106,7 +136,7 @@ async function translateContent(content) {
       model: MODEL_NAME,
       contents: content,
       config: {
-        systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
+        systemInstruction: "Translate these novel titles accurately to English, preserving their original meaning and style. Return each translated title on a new line in the same order.",
         safetySettings: safetySettings,
       }
     });
@@ -121,9 +151,11 @@ async function translateContent(content) {
     throw new Error('Empty response from API');
   } catch (error) {
     console.error('Translation error:', error.message);
+    // Fallback to Google Translate
+    const translated = await googleTranslate(content);
     return {
-      translated: false,
-      content: content,
+      translated: translated !== content,
+      content: translated,
       model: FALLBACK_MODEL
     };
   }
@@ -179,7 +211,7 @@ async function main(jsonUrl, rangeStr) {
 
     // Prepare items with translated titles
     const itemsWithTranslatedTitles = itemsInRange.map((item, index) => ({
-      title: translatedTitles[index] || item.title, // Fallback to original if translation failed
+      title: translatedTitles[index] || item.title,
       content: item.content
     }));
 
@@ -209,7 +241,7 @@ async function main(jsonUrl, rangeStr) {
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     console.log(`\nTranslation summary:`);
     console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
-    console.log(`- Failed to translate (${FALLBACK_MODEL}): ${failCount}`);
+    console.log(`- Used fallback (${FALLBACK_MODEL}): ${failCount}`);
     console.log(`Translated results saved to ${outputPath}`);
 
   } catch (error) {
