@@ -58,13 +58,34 @@ function parseRange(rangeStr, maxItems) {
   return { start, end };
 }
 
-async function translateTitle(title) {
+async function translateTitlesBatch(titles) {
+  try {
+    const response = await ai.models.generateContent({
+      model: TITLE_MODEL,
+      contents: titles.join('\n'),
+      config: {
+        systemInstruction: "Translate these novel titles accurately to English, preserving their original meaning and style. Return each translated title on a new line in the same order.",
+        safetySettings: safetySettings,
+      }
+    });
+
+    if (response && response.text) {
+      return response.text.split('\n');
+    }
+    throw new Error('Empty response from API');
+  } catch (error) {
+    console.error('Batch title translation error:', error.message);
+    return null;
+  }
+}
+
+async function translateTitleSingle(title) {
   try {
     const response = await ai.models.generateContent({
       model: TITLE_MODEL,
       contents: title,
       config: {
-        systemInstruction: "You are a strict translator. Translate this title accurately while preserving its original meaning and style.",
+        systemInstruction: "Translate this novel title accurately to English, preserving its original meaning and style.",
         safetySettings: safetySettings,
       }
     });
@@ -74,7 +95,7 @@ async function translateTitle(title) {
     }
     throw new Error('Empty response from API');
   } catch (error) {
-    console.error('Title translation error:', error.message);
+    console.error('Single title translation error:', error.message);
     return title;
   }
 }
@@ -124,21 +145,45 @@ async function main(jsonUrl, rangeStr) {
     const filename = path.basename(jsonUrl, '.json');
     const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
-    // First translate all titles
-    console.log("Translating titles...");
-    const itemsWithTranslatedTitles = [];
-    for (let i = start - 1; i < end; i++) {
-      const item = jsonData[i];
-      const translatedTitle = await translateTitle(item.title);
-      itemsWithTranslatedTitles.push({
-        originalTitle: item.title,
-        title: translatedTitle,
-        content: item.content
-      });
-      console.log(`Translated title ${i + 1}: ${item.title} -> ${translatedTitle}`);
+    // Extract items in range
+    const itemsInRange = jsonData.slice(start - 1, end);
+    const originalTitles = itemsInRange.map(item => item.title);
+
+    // Try to translate all titles at once first
+    console.log("Attempting to translate all titles in one batch...");
+    let translatedTitles = await translateTitlesBatch(originalTitles);
+    
+    // If batch translation failed, fall back to batches of 20
+    if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
+      console.log("Batch translation failed, falling back to smaller batches...");
+      translatedTitles = [];
+      const BATCH_SIZE = 20;
+      
+      for (let i = 0; i < originalTitles.length; i += BATCH_SIZE) {
+        const batch = originalTitles.slice(i, i + BATCH_SIZE);
+        console.log(`Translating title batch ${i + 1}-${i + batch.length}`);
+        
+        const batchResult = await translateTitlesBatch(batch);
+        if (batchResult && batchResult.length === batch.length) {
+          translatedTitles.push(...batchResult);
+        } else {
+          // If batch fails, translate individually
+          console.log("Batch failed, translating titles individually...");
+          for (const title of batch) {
+            const translated = await translateTitleSingle(title);
+            translatedTitles.push(translated);
+          }
+        }
+      }
     }
 
-    // Then translate content
+    // Prepare items with translated titles
+    const itemsWithTranslatedTitles = itemsInRange.map((item, index) => ({
+      title: translatedTitles[index] || item.title, // Fallback to original if translation failed
+      content: item.content
+    }));
+
+    // Translate content
     const translatedItems = [];
     let successCount = 0;
     let failCount = 0;
