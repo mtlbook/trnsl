@@ -102,30 +102,48 @@ async function translateTitleSingle(title) {
 
 async function translateContent(content) {
   try {
+    // 1️⃣  Try Gemini first
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: content,
       config: {
-        systemInstruction: "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-        safetySettings: safetySettings,
-      }
+        systemInstruction:
+          "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
+        safetySettings,
+      },
     });
 
-    if (response && response.text) {
-      return {
-        translated: true,
-        content: response.text,
-        model: MODEL_NAME
-      };
+    if (response?.text) {
+      return { translated: true, content: response.text, model: MODEL_NAME };
     }
-    throw new Error('Empty response from API');
-  } catch (error) {
-    console.error('Translation error:', error.message);
-    return {
-      translated: false,
-      content: content,
-      model: FALLBACK_MODEL
-    };
+    throw new Error('Gemini empty response');
+  } catch (err) {
+    console.warn(`Gemini failed → falling back to Google: ${err.message}`);
+
+    // 2️⃣  Axios fallback (CommonJS style)
+    try {
+      const params = new URLSearchParams({
+        client: 'gtx',
+        sl: 'zh-CN',
+        tl: 'en',
+        hl: 'en',
+        ie: 'UTF-8',
+        oe: 'UTF-8',
+        dt: 't',
+        q: content,
+      });
+
+      const { data } = await axios.get(
+        `https://translate.googleapis.com/translate_a/single`,
+        { params, headers: { 'User-Agent': 'Mozilla/5.0' } }
+      );
+
+      const english = data[0].map(seg => seg[0]).join('');
+      return { translated: true, content: english, model: 'google translate' };
+    } catch (axiosErr) {
+      console.error('Google fallback also failed:', axiosErr.message);
+      return { translated: false, content, model: 'google translate' };
+    }
   }
 }
 
