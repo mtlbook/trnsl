@@ -126,7 +126,7 @@ let lastError;
 
 while (attempt < MAX_RETRIES) {
   try {
-    const CHUNK_SIZE = 2000;
+    const CHUNK_SIZE = 1000;
     const reSentence = /[.!?！？。]+/g;
     const sentences = content.split(reSentence);
     const chunks = [];
