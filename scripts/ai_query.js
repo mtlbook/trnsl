@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
 const MODEL_NAME = "gemini-2.5-flash";
+const TITLE_MODEL = "gemini-2.5-pro";
 const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
@@ -48,14 +49,34 @@ function parseRange(rangeStr, maxItems) {
   let start = parseInt(startStr);
   let end = endStr ? parseInt(endStr) : start;
 
-  // Validate range
   if (isNaN(start)) start = 1;
   if (isNaN(end)) end = maxItems;
   if (start < 1) start = 1;
   if (end > maxItems) end = maxItems;
-  if (start > end) [start, end] = [end, start]; // Swap if reversed
+  if (start > end) [start, end] = [end, start];
 
   return { start, end };
+}
+
+async function translateTitle(title) {
+  try {
+    const response = await ai.models.generateContent({
+      model: TITLE_MODEL,
+      contents: title,
+      config: {
+        systemInstruction: "You are a strict translator. Translate this title accurately while preserving its original meaning and style.",
+        safetySettings: safetySettings,
+      }
+    });
+
+    if (response && response.text) {
+      return response.text;
+    }
+    throw new Error('Empty response from API');
+  } catch (error) {
+    console.error('Title translation error:', error.message);
+    return title;
+  }
 }
 
 async function translateContent(content) {
@@ -69,7 +90,6 @@ async function translateContent(content) {
       }
     });
 
-    // Check if response contains text
     if (response && response.text) {
       return {
         translated: true,
@@ -82,7 +102,7 @@ async function translateContent(content) {
     console.error('Translation error:', error.message);
     return {
       translated: false,
-      content: content, // Return original content
+      content: content,
       model: FALLBACK_MODEL
     };
   }
@@ -90,32 +110,41 @@ async function translateContent(content) {
 
 async function main(jsonUrl, rangeStr) {
   try {
-    // Fetch and parse the JSON
     const jsonData = await fetchJson(jsonUrl);
     if (!Array.isArray(jsonData)) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
-    // Parse the range
     const { start, end } = parseRange(rangeStr, jsonData.length);
     console.log(`Processing items ${start} to ${end} of ${jsonData.length}`);
 
-    // Create results directory
     const resultsDir = path.join(__dirname, '../results');
     await fs.mkdir(resultsDir, { recursive: true });
 
-    // Extract filename from URL and create output filename with range
     const filename = path.basename(jsonUrl, '.json');
     const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
-    // Process each item in range
+    // First translate all titles
+    console.log("Translating titles...");
+    const itemsWithTranslatedTitles = [];
+    for (let i = start - 1; i < end; i++) {
+      const item = jsonData[i];
+      const translatedTitle = await translateTitle(item.title);
+      itemsWithTranslatedTitles.push({
+        originalTitle: item.title,
+        title: translatedTitle,
+        content: item.content
+      });
+      console.log(`Translated title ${i + 1}: ${item.title} -> ${translatedTitle}`);
+    }
+
+    // Then translate content
     const translatedItems = [];
     let successCount = 0;
     let failCount = 0;
 
-    for (let i = start - 1; i < end; i++) {
-      const item = jsonData[i];
-      console.log(`Translating item ${i + 1}: ${item.title}`);
+    for (const item of itemsWithTranslatedTitles) {
+      console.log(`Translating content for: ${item.title}`);
       
       const translationResult = await translateContent(item.content);
       translatedItems.push({
@@ -132,7 +161,6 @@ async function main(jsonUrl, rangeStr) {
       }
     }
 
-    // Save the translated items
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     console.log(`\nTranslation summary:`);
     console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
@@ -145,7 +173,6 @@ async function main(jsonUrl, rangeStr) {
   }
 }
 
-// Get command line arguments
 const [jsonUrl, range] = process.argv.slice(2);
 if (!jsonUrl || !range) {
   console.error('Usage: node ai_query.js <json_url> <range>');
