@@ -120,30 +120,49 @@ async function translateContent(content) {
   } catch (err) {
     console.warn(`Gemini failed → falling back to Google: ${err.message}`);
 
-    // 2️⃣  Axios fallback (CommonJS style)
-    try {
-      const params = new URLSearchParams({
-        client: 'gtx',
-        sl: 'zh-CN',
-        tl: 'en',
-        hl: 'en',
-        ie: 'UTF-8',
-        oe: 'UTF-8',
-        dt: 't',
-        q: content,
-      });
-
-      const { data } = await axios.get(
-        `https://translate.googleapis.com/translate_a/single`,
-        { params, headers: { 'User-Agent': 'Mozilla/5.0' } }
-      );
-
-      const english = data[0].map(seg => seg[0]).join('');
-      return { translated: true, content: english, model: 'google translate' };
-    } catch (axiosErr) {
-      console.error('Google fallback also failed:', axiosErr.message);
-      return { translated: false, content, model: 'google translate' };
+try {
+  const CHUNK_SIZE = 4000;
+  const reSentence = /[.!?！？。]+/g;
+  const sentences = content.split(reSentence);
+  const chunks = [];
+  let buf = '';
+  for (const s of sentences) {
+    const next = buf + (buf ? '' : '') + s;
+    if (next.length > CHUNK_SIZE && buf) {
+      chunks.push(buf.trim());
+      buf = s;
+    } else {
+      buf = next;
     }
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+
+  // Translate each chunk
+  let translated = '';
+  for (const chunk of chunks) {
+    const params = new URLSearchParams({
+      client: 'gtx',
+      sl: 'zh-CN',
+      tl: 'en',
+      hl: 'en',
+      ie: 'UTF-8',
+      oe: 'UTF-8',
+      dt: 't',
+      q: chunk,
+    });
+
+    const { data } = await axios.get(
+      'https://translate.googleapis.com/translate_a/single',
+      { params, headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    translated += data[0].map(seg => seg[0]).join('');
+  }
+
+  return { translated: true, content: translated, model: 'google translate' };
+} catch (axiosErr) {
+  console.error('Google fallback also failed:', axiosErr.message);
+  return { translated: false, content, model: 'google translate' };
+}
   }
 }
 
