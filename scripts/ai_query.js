@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ai = new GoogleGenAI({});
 const MODEL_NAME = "gemini-2.5-flash";
 const TITLE_MODEL = "gemini-2.5-pro";
-const FALLBACK_MODEL = "google_translate";
+const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
   {
@@ -58,32 +58,6 @@ function parseRange(rangeStr, maxItems) {
   return { start, end };
 }
 
-async function translateWithGoogle(text) {
-  try {
-    const url = new URL('https://translate.googleapis.com/translate_a/single');
-    const params = {
-      client: 'gtx',
-      sl: 'zh-TW',
-      tl: 'en',
-      dt: 't',
-      q: text,
-      hl: 'en',
-      ie: 'UTF-8',
-      oe: 'UTF-8'
-    };
-    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
-
-    const response = await axios.get(url.toString());
-    if (response.data && Array.isArray(response.data[0])) {
-      return response.data[0].map(item => item[0]).join('');
-    }
-    return text; // Return original text if translation fails
-  } catch (error) {
-    console.error('Google Translate fallback error:', error.message);
-    return text; // Return original text on error
-  }
-}
-
 async function translateTitlesBatch(titles) {
   try {
     const response = await ai.models.generateContent({
@@ -121,9 +95,8 @@ async function translateTitleSingle(title) {
     }
     throw new Error('Empty response from API');
   } catch (error) {
-    console.error(`Single title translation error for "${title}":`, error.message);
-    console.log(`Falling back to Google Translate for title: "${title}"`);
-    return await translateWithGoogle(title);
+    console.error('Single title translation error:', error.message);
+    return title;
   }
 }
 
@@ -148,11 +121,9 @@ async function translateContent(content) {
     throw new Error('Empty response from API');
   } catch (error) {
     console.error('Translation error:', error.message);
-    console.log("Falling back to Google Translate for content.");
-    const translatedContent = await translateWithGoogle(content);
     return {
-      translated: translatedContent !== content,
-      content: translatedContent,
+      translated: false,
+      content: content,
       model: FALLBACK_MODEL
     };
   }
@@ -174,14 +145,17 @@ async function main(jsonUrl, rangeStr) {
     const filename = path.basename(jsonUrl, '.json');
     const outputPath = path.join(resultsDir, `${filename}_translated_${start}_${end}.json`);
 
+    // Extract items in range
     const itemsInRange = jsonData.slice(start - 1, end);
     const originalTitles = itemsInRange.map(item => item.title);
 
+    // Try to translate all titles at once first
     console.log("Attempting to translate all titles in one batch...");
     let translatedTitles = await translateTitlesBatch(originalTitles);
     
+    // If batch translation failed, fall back to batches of 20
     if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
-      console.log("Batch title translation failed, falling back to smaller batches or individual translation...");
+      console.log("Batch translation failed, falling back to smaller batches...");
       translatedTitles = [];
       const BATCH_SIZE = 20;
       
@@ -193,6 +167,7 @@ async function main(jsonUrl, rangeStr) {
         if (batchResult && batchResult.length === batch.length) {
           translatedTitles.push(...batchResult);
         } else {
+          // If batch fails, translate individually
           console.log("Batch failed, translating titles individually...");
           for (const title of batch) {
             const translated = await translateTitleSingle(title);
@@ -202,14 +177,16 @@ async function main(jsonUrl, rangeStr) {
       }
     }
 
+    // Prepare items with translated titles
     const itemsWithTranslatedTitles = itemsInRange.map((item, index) => ({
-      title: translatedTitles[index] || item.title,
+      title: translatedTitles[index] || item.title, // Fallback to original if translation failed
       content: item.content
     }));
 
+    // Translate content
     const translatedItems = [];
     let successCount = 0;
-    let fallbackCount = 0;
+    let failCount = 0;
 
     for (const item of itemsWithTranslatedTitles) {
       console.log(`Translating content for: ${item.title}`);
@@ -222,17 +199,17 @@ async function main(jsonUrl, rangeStr) {
         model: translationResult.model
       });
 
-      if (translationResult.model === FALLBACK_MODEL) {
-        fallbackCount++;
-      } else {
+      if (translationResult.translated) {
         successCount++;
+      } else {
+        failCount++;
       }
     }
 
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     console.log(`\nTranslation summary:`);
     console.log(`- Successfully translated (${MODEL_NAME}): ${successCount}`);
-    console.log(`- Translated with fallback (${FALLBACK_MODEL}): ${fallbackCount}`);
+    console.log(`- Failed to translate (${FALLBACK_MODEL}): ${failCount}`);
     console.log(`Translated results saved to ${outputPath}`);
 
   } catch (error) {
