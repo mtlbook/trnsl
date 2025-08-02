@@ -232,7 +232,6 @@ async function main(jsonUrl, rangeStr) {
       translatedItems.push({
         title: item.title,
         content: translationResult.content,
-        translated: translationResult.translated,
         model: translationResult.model
       });
 
