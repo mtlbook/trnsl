@@ -121,7 +121,7 @@ async function translateContent(content) {
     console.warn(`Gemini failed → falling back to Google: ${err.message}`);
 
 try {
-  const CHUNK_SIZE = 4000;
+  const CHUNK_SIZE = 2000;
   const reSentence = /[.!?！？。]+/g;
   const sentences = content.split(reSentence);
   const chunks = [];
