@@ -155,9 +155,9 @@ async function translateContent(content) {
         if (retry?.text) {
          return { translated: true, content: retry.text, model: MODEL_NAME };
         }
-      } catch (_) { /* swallow retry error, fall through */ }
-   }
-  } catch (err) {
+    } catch (_) {
+      }
+    }
     console.warn(`Gemini failed → falling back to Google: ${err.message}`);
 
 const MAX_RETRIES = 3;
