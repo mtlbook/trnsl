@@ -117,7 +117,7 @@ async function googleTranslateTitle(title) {
     return data[0].map(seg => seg[0]).join('');
   } catch (err) {
     console.warn('Google title fallback failed:', err.message);
-    return title; // fallback to original
+    return translateTitleSingle(title);
   }
 }
 
