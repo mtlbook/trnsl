@@ -132,7 +132,7 @@ async function translateContent(content, model = MODEL_NAME) {
       config: {
         systemInstruction:
           "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-        safetySettings,
+        safetySettings: safetySettings,
       },
     });
 
@@ -241,35 +241,32 @@ async function main(jsonUrl, rangeStr) {
     }
 
 async function translateContentParallel(items) {
-  const translatedItems = [];
-  let successCount = 0;
-  let failCount    = 0;
+  const DELAY = 4_000;               // 4_000 - 4 s between starts, 12_000 - 5s
+  const promises = items.map((item, idx) =>
+    new Promise(resolve => {
+      setTimeout(async () => {
+        console.log(`[${idx + 1}/${items.length}] Translating: ${item.title}`);
+        const res = await translateContent(item.content);
+        resolve({
+          title:   item.title,
+          content: res.content,
+          model:   res.model,
+          ok:      res.translated,
+        });
+      }, idx * DELAY);
+    })
+  );
 
-  // 12000 5 times
-  // 4000 15 times
-  const DELAY = 4_000;
+  const results = await Promise.all(promises);
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    console.log(`[${i + 1}/${items.length}] Translating: ${item.title}`);
+  const successCount = results.filter(r => r.ok).length;
+  const failCount    = results.length - successCount;
 
-    const res = await translateContent(item.content);
-
-    if (res.translated) successCount++;
-    else                failCount++;
-
-    translatedItems.push({
-      title:   item.title,
-      content: res.content,
-      model:   res.model,
-    });
-
-    if (i < items.length - 1) {
-      await new Promise(r => setTimeout(r, DELAY));
-    }
-  }
-
-  return { translatedItems, successCount, failCount };
+  return {
+    translatedItems: results.map(({ ok, ...rest }) => rest),
+    successCount,
+    failCount,
+  };
 }
     
     const { start, end } = parseRange(rangeStr, jsonData.length);
