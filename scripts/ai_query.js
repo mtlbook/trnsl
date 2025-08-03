@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
-import { Semaphore } from './concurrency.js';
+import { Semaphore } from '../concurrency.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
