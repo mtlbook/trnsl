@@ -45,15 +45,18 @@ jobs:
               print(f"No files found with prefix {prefix} in {results_dir}")
               exit(1)
 
-          # Initialize merged data
-          merged_data = {}
+          # Initialize merged data as a list
+          merged_data = []
 
           # Merge all files
           for file_path in sorted(files_to_merge):
               try:
                   with open(file_path, 'r', encoding='utf-8') as f:
                       data = json.load(f)
-                      merged_data.update(data)
+                      if isinstance(data, list):
+                          merged_data.extend(data)
+                      else:
+                          print(f"Warning: {file_path} does not contain a JSON array")
                   print(f"Merged: {file_path}")
               except Exception as e:
                   print(f"Error merging {file_path}: {str(e)}")
@@ -64,6 +67,7 @@ jobs:
               json.dump(merged_data, f, ensure_ascii=False, indent=2)
 
           print(f"Successfully merged {len(files_to_merge)} files into {output_path}")
+          print(f"Total items in merged file: {len(merged_data)}")
           EOF
 
       - name: Commit merged file
