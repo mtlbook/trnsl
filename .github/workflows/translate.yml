@@ -30,7 +30,7 @@ jobs:
       
     - name: Run AI script
       env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY1 }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: node scripts/ai_query.js "${{ github.event.inputs.json_url }}" "${{ github.event.inputs.range }}"
       
     - name: Commit and push changes
