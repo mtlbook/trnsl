@@ -8,7 +8,7 @@ import { Semaphore } from '../concurrency.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-pro";
+const MODEL_NAME = "gemini-2.5-flash-lite";
 const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
 
@@ -239,7 +239,7 @@ async function main(jsonUrl, rangeStr) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
-const CONCURRENCY = 5;               // tweak as you like
+const CONCURRENCY = 15;               // tweak as you like
 const sem = new Semaphore(CONCURRENCY);
 
 async function translateContentParallel(items) {
