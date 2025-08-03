@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
+import { Semaphore } from './concurrency.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -225,6 +226,33 @@ async function main(jsonUrl, rangeStr) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
+const CONCURRENCY = 5;               // tweak as you like
+const sem = new Semaphore(CONCURRENCY);
+
+async function translateContentParallel(items) {
+  let successCount = 0;
+  let failCount = 0;
+
+  const promises = items.map(async (item, idx) => {
+    return sem.run(async () => {
+      console.log(`[${idx + 1}/${items.length}] Translating: ${item.title}`);
+      const res = await translateContent(item.content);
+
+      if (res.translated) successCount++;
+      else failCount++;
+
+      return {
+        title: item.title,
+        content: res.content,
+        model: res.model
+      };
+    });
+  });
+
+  const translatedItems = await Promise.all(promises);
+  return { translatedItems, successCount, failCount };
+}
+    
     const { start, end } = parseRange(rangeStr, jsonData.length);
     console.log(`Processing items ${start} to ${end} of ${jsonData.length}`);
 
@@ -268,31 +296,13 @@ async function main(jsonUrl, rangeStr) {
 
     // Prepare items with translated titles
     const itemsWithTranslatedTitles = itemsInRange.map((item, index) => ({
-      title: translatedTitles[index] || item.title, // Fallback to original if translation failed
+      title: translatedTitles[index] || item.title, 
       content: item.content
     }));
 
     // Translate content
-    const translatedItems = [];
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const item of itemsWithTranslatedTitles) {
-      console.log(`Translating content for: ${item.title}`);
-      
-      const translationResult = await translateContent(item.content);
-      translatedItems.push({
-        title: item.title,
-        content: translationResult.content,
-        model: translationResult.model
-      });
-
-      if (translationResult.translated) {
-        successCount++;
-      } else {
-        failCount++;
-      }
-    }
+     const { translatedItems, successCount, failCount } =
+      await translateContentParallel(itemsWithTranslatedTitles);
 
     await fs.writeFile(outputPath, JSON.stringify(translatedItems, null, 2));
     console.log(`\nTranslation summary:`);
