@@ -290,28 +290,31 @@ async function translateContentParallel(items) {
     let translatedTitles = await translateTitlesBatch(originalTitles);
     
 if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
-  console.log('Batch translation failed, retrying with parallel Gemini batches…');
+  console.log('Batch translation failed, retrying with small Gemini batches…');
 
   const BATCH_SIZE = 20; 
-  const batches = [];
+  translatedTitles = [];
+
   for (let i = 0; i < originalTitles.length; i += BATCH_SIZE) {
-    batches.push(originalTitles.slice(i, i + BATCH_SIZE));
+    const slice = originalTitles.slice(i, i + BATCH_SIZE);
+
+    // helper: translate one slice with Gemini
+    async function translateSlice(titles) {
+      const res = await translateTitlesBatch(titles);
+      if (res && res.length === titles.length) return res;
+
+      // slice failed → fall back to individual Google calls
+      const singlePromises = titles.map(t => googleTranslateTitle(t));
+      return Promise.all(singlePromises);
+    }
+
+    const batch = await translateSlice(slice);
+    translatedTitles.push(...batch);
+
+    if (i + BATCH_SIZE < originalTitles.length) {
+      await new Promise(r => setTimeout(r, 1_000));
+    }
   }
-
-  // helper: translate one slice with Gemini
-  async function translateSlice(slice) {
-    const res = await translateTitlesBatch(slice);
-    if (res && res.length === slice.length) return res;
-
-    // slice failed → fall back to individual Google calls
-    const singlePromises = slice.map(t => googleTranslateTitle(t));
-    return Promise.all(singlePromises);
-  }
-
-  // run up to CONCURRENCY Gemini requests in parallel
-  const promises = batches.map(b => sem.run(() => translateSlice(b)));
-  const nestedResults = await Promise.all(promises);
-  translatedTitles = nestedResults.flat();
 }
 
     // Prepare items with translated titles
