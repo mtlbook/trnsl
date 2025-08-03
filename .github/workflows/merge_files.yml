@@ -1,0 +1,75 @@
+name: Merge JSON Files
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_prefix:
+        description: 'File prefix to merge (e.g., 4183)'
+        required: true
+
+jobs:
+  merge-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Merge JSON files
+        run: |
+          python - <<EOF
+          import json
+          import os
+          import glob
+
+          # Get input from workflow dispatch
+          prefix = "${{ github.event.inputs.file_prefix }}"
+
+          # Path configuration
+          results_dir = 'results'
+          data_dir = 'data'
+          output_filename = f"{prefix}_translated.json"
+
+          # Create data directory if it doesn't exist
+          os.makedirs(data_dir, exist_ok=True)
+
+          # Find all files with the prefix in the results directory
+          pattern = os.path.join(results_dir, f"{prefix}_*.json")
+          files_to_merge = glob.glob(pattern)
+
+          if not files_to_merge:
+              print(f"No files found with prefix {prefix} in {results_dir}")
+              exit(1)
+
+          # Initialize merged data
+          merged_data = {}
+
+          # Merge all files
+          for file_path in sorted(files_to_merge):
+              try:
+                  with open(file_path, 'r', encoding='utf-8') as f:
+                      data = json.load(f)
+                      merged_data.update(data)
+                  print(f"Merged: {file_path}")
+              except Exception as e:
+                  print(f"Error merging {file_path}: {str(e)}")
+
+          # Write merged file
+          output_path = os.path.join(data_dir, output_filename)
+          with open(output_path, 'w', encoding='utf-8') as f:
+              json.dump(merged_data, f, ensure_ascii=False, indent=2)
+
+          print(f"Successfully merged {len(files_to_merge)} files into {output_path}")
+          EOF
+
+      - name: Commit merged file
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add data/
+          git commit -m "Merged ${{ github.event.inputs.file_prefix }} files" || echo "No changes to commit"
+          git push
