@@ -8,7 +8,7 @@ import { Semaphore } from '../concurrency.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-flash-lite";
+const MODEL_NAME = "gemini-2.5-pro";
 const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
 
@@ -112,7 +112,7 @@ async function googleTranslateTitle(title) {
 
   try {
     const { data } = await axios.get(
-      'https://translate.googleapis.com/translate_a/single',
+      'https://translate.googleapis.com/translate_a/single   ',
       { params, timeout: 10_000, headers: { 'User-Agent': 'Mozilla/5.0' } }
     );
     return data[0].map(seg => seg[0]).join('');
@@ -125,13 +125,14 @@ async function googleTranslateTitle(title) {
 async function translateContent(content, model = MODEL_NAME) {
   // 1️⃣ Try the requested model first
   try {
+    console.log(`[translate] using model: ${model}`);
     const response = await ai.models.generateContent({
       model,
       contents: content,
       config: {
         systemInstruction:
           "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-        safetySettings,
+        safetySettings: safetySettings,
       },
     });
 
@@ -208,7 +209,7 @@ async function translateContent(content, model = MODEL_NAME) {
           });
 
           const { data } = await axios.get(
-            'https://translate.googleapis.com/translate_a/single',
+            'https://translate.googleapis.com/translate_a/single   ',
             { params, timeout: 10_000, headers: { 'User-Agent': 'Mozilla/5.0' } }
           );
           translated += data[0].map(seg => seg[0]).join('');
@@ -239,7 +240,7 @@ async function main(jsonUrl, rangeStr) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
-const CONCURRENCY = 15;               // tweak as you like
+const CONCURRENCY = 5;               // tweak as you like
 const sem = new Semaphore(CONCURRENCY);
 
 async function translateContentParallel(items) {
@@ -283,30 +284,29 @@ async function translateContentParallel(items) {
     console.log("Attempting to translate all titles in one batch...");
     let translatedTitles = await translateTitlesBatch(originalTitles);
     
-if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
-  console.log('Batch translation failed, retrying with parallel Gemini batches…');
-
-  const BATCH_SIZE = 20; 
-  const batches = [];
-  for (let i = 0; i < originalTitles.length; i += BATCH_SIZE) {
-    batches.push(originalTitles.slice(i, i + BATCH_SIZE));
+    // If batch translation failed, fall back to batches of 20
+    if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
+      console.log("Batch translation failed, falling back to smaller batches...");
+      translatedTitles = [];
+      const BATCH_SIZE = 20;
+      
+      for (let i = 0; i < originalTitles.length; i += BATCH_SIZE) {
+        const batch = originalTitles.slice(i, i + BATCH_SIZE);
+        console.log(`Translating title batch ${i + 1}-${i + batch.length}`);
+        
+        const batchResult = await translateTitlesBatch(batch);
+        if (batchResult && batchResult.length === batch.length) {
+          translatedTitles.push(...batchResult);
+        } else {
+          // If batch fails, translate individually
+          console.log("Batch failed, translating titles individually via GT");
+  for (const title of batch) {
+    const translated = await googleTranslateTitle(title);
+    translatedTitles.push(translated);
   }
-
-  // helper: translate one slice with Gemini
-  async function translateSlice(slice) {
-    const res = await translateTitlesBatch(slice);
-    if (res && res.length === slice.length) return res;
-
-    // slice failed → fall back to individual Google calls
-    const singlePromises = slice.map(t => googleTranslateTitle(t));
-    return Promise.all(singlePromises);
-  }
-
-  // run up to CONCURRENCY Gemini requests in parallel
-  const promises = batches.map(b => sem.run(() => translateSlice(b)));
-  const nestedResults = await Promise.all(promises);
-  translatedTitles = nestedResults.flat();
-}
+        }
+      }
+    }
 
     // Prepare items with translated titles
     const itemsWithTranslatedTitles = itemsInRange.map((item, index) => ({
