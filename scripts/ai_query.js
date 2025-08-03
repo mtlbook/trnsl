@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
 const MODEL_NAME = "gemini-2.5-flash-lite";
-const TITLE_MODEL = "gemini-2.5-flash";
+const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
@@ -240,30 +240,35 @@ async function main(jsonUrl, rangeStr) {
       throw new Error('Invalid JSON format: Expected an array');
     }
 
-const CONCURRENCY = 15;               // tweak as you like
-const sem = new Semaphore(CONCURRENCY);
-
 async function translateContentParallel(items) {
+  const translatedItems = [];
   let successCount = 0;
-  let failCount = 0;
+  let failCount    = 0;
 
-  const promises = items.map(async (item, idx) => {
-    return sem.run(async () => {
-      console.log(`[${idx + 1}/${items.length}] Translating: ${item.title}`);
-      const res = await translateContent(item.content);
+  // 12000 5 times
+  // 4000 15 times
+  const DELAY = 4_000;
 
-      if (res.translated) successCount++;
-      else failCount++;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    console.log(`[${i + 1}/${items.length}] Translating: ${item.title}`);
 
-      return {
-        title: item.title,
-        content: res.content,
-        model: res.model
-      };
+    const res = await translateContent(item.content);
+
+    if (res.translated) successCount++;
+    else                failCount++;
+
+    translatedItems.push({
+      title:   item.title,
+      content: res.content,
+      model:   res.model,
     });
-  });
 
-  const translatedItems = await Promise.all(promises);
+    if (i < items.length - 1) {
+      await new Promise(r => setTimeout(r, DELAY));
+    }
+  }
+
   return { translatedItems, successCount, failCount };
 }
     
