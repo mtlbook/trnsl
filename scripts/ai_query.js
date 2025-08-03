@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
 const MODEL_NAME = "gemini-2.5-flash-lite";
-const TITLE_MODEL = "gemini-2.0-flash";
+const TITLE_MODEL = "gemini-2.5-flash-lite";
 const FALLBACK_MODEL = "google translate";
 
 const safetySettings = [
