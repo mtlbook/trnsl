@@ -122,100 +122,113 @@ async function googleTranslateTitle(title) {
   }
 }
 
-async function translateContent(content) {
+async function translateContent(content, model = MODEL_NAME) {
+  // 1️⃣ Try the requested model first
   try {
-    // 1️⃣  Try Gemini first
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model,
       contents: content,
       config: {
         systemInstruction:
           "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-        safetySettings: safetySettings,
+        safetySettings,
       },
     });
 
     if (response?.text) {
-      return { translated: true, content: response.text, model: MODEL_NAME };
+      return { translated: true, content: response.text, model };
     }
-    throw new Error('Gemini empty response');
-    } catch (err) {
+    throw new Error('Empty response');
+  } catch (err) {
+    // 2️⃣ If we hit quota on the primary model, retry once with flash
+    if (
+      (err?.status === 429 || err?.message?.toLowerCase().includes('quota')) &&
+      model === MODEL_NAME && MODEL_NAME !== 'gemini-2.5-flash'
+    ) {
+      console.warn('Quota hit on content → retrying with gemini-2.5-flash');
+      return translateContent(content, 'gemini-2.5-flash');
+    }
+
+    // 3️⃣ Internal 5xx → single retry on the same model
     if (err?.message?.toLowerCase().includes('internal') || err?.status >= 500) {
-      console.warn('Gemini internal error, retrying once…');
+      console.warn(`${model} internal error, retrying once…`);
       try {
-       const retry = await ai.models.generateContent({
-         model: MODEL_NAME,
+        const retry = await ai.models.generateContent({
+          model,
           contents: content,
           config: {
-            systemInstruction:
+ systemInstruction:
           "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-            safetySettings: safetySettings,
+        safetySettings: safetySettings,
           },
         });
         if (retry?.text) {
-         return { translated: true, content: retry.text, model: MODEL_NAME };
+          return { translated: true, content: retry.text, model };
         }
-    } catch (_) {
+      } catch (_) {
       }
     }
-    console.warn(`Gemini failed → falling back to Google: ${err.message}`);
 
-const MAX_RETRIES = 3;
-let attempt = 0;
-let lastError;
+    // 4️⃣ All else → Google Translate fallback with chunking & retries
+    console.warn(`${model} failed → falling back to Google: ${err.message}`);
 
-while (attempt < MAX_RETRIES) {
-  try {
-    const CHUNK_SIZE = 1000;
-    const reSentence = /[.!?！？。]+/g;
-    const sentences = content.split(reSentence);
-    const chunks = [];
-    let buf = '';
-    for (const s of sentences) {
-      const next = buf + s;
-      if (next.length > CHUNK_SIZE && buf) {
-        chunks.push(buf.trim());
-        buf = s;
-      } else {
-        buf = next;
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    let lastError;
+
+    while (attempt < MAX_RETRIES) {
+      try {
+        const CHUNK_SIZE = 1000;
+        const reSentence = /[.!?！？。]+/g;
+        const sentences = content.split(reSentence);
+        const chunks = [];
+        let buf = '';
+        for (const s of sentences) {
+          const next = buf + s;
+          if (next.length > CHUNK_SIZE && buf) {
+            chunks.push(buf.trim());
+            buf = s;
+          } else {
+            buf = next;
+          }
+        }
+        if (buf.trim()) chunks.push(buf.trim());
+
+        let translated = '';
+        for (const chunk of chunks) {
+          const params = new URLSearchParams({
+            client: 'gtx',
+            sl: 'zh-CN',
+            tl: 'en',
+            hl: 'en',
+            ie: 'UTF-8',
+            oe: 'UTF-8',
+            dt: 't',
+            q: chunk,
+          });
+
+          const { data } = await axios.get(
+            'https://translate.googleapis.com/translate_a/single',
+            { params, timeout: 10_000, headers: { 'User-Agent': 'Mozilla/5.0' } }
+          );
+          translated += data[0].map(seg => seg[0]).join('');
+        }
+
+        return { translated: true, content: translated, model: 'google translate' };
+      } catch (axiosErr) {
+        lastError = axiosErr;
+        attempt++;
+        console.warn(
+          `Google fallback attempt ${attempt}/${MAX_RETRIES} failed: ${axiosErr.message}`
+        );
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 500 * attempt));
+        }
       }
     }
-    if (buf.trim()) chunks.push(buf.trim());
 
-    let translated = '';
-    for (const chunk of chunks) {
-      const params = new URLSearchParams({
-        client: 'gtx',
-        sl: 'zh-CN',
-        tl: 'en',
-        hl: 'en',
-        ie: 'UTF-8',
-        oe: 'UTF-8',
-        dt: 't',
-        q: chunk,
-      });
-
-      const { data } = await axios.get(
-        'https://translate.googleapis.com/translate_a/single',
-        { params, timeout: 10_000, headers: { 'User-Agent': 'Mozilla/5.0' } }
-      );
-      translated += data[0].map(seg => seg[0]).join('');
-    }
-
-    return { translated: true, content: translated, model: 'google translate' };
-  } catch (axiosErr) {
-    lastError = axiosErr;
-    attempt++;
-    console.warn(`Google fallback attempt ${attempt}/${MAX_RETRIES} failed: ${axiosErr.message}`);
-    if (attempt < MAX_RETRIES) {
-      // Optional: short exponential back-off
-      await new Promise(r => setTimeout(r, 500 * attempt));
-    }
-  }
-}
-
-console.error('Google fallback failed after all retries:', lastError.message);
-return { translated: false, content, model: 'google translate' };
+    console.error('Google fallback failed after all retries:', lastError.message);
+    return { translated: false, content, model: 'google translate' };
   }
 }
 
