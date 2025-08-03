@@ -240,10 +240,10 @@ async function main(jsonUrl, rangeStr) {
         } else {
           // If batch fails, translate individually
           console.log("Batch failed, translating titles individually via GT");
-      for (const title of batch) {
-+            const translated = await googleTranslateTitle(title);
-+            translatedTitles.push(translated);
-           }
+  for (const title of batch) {
+    const translated = await googleTranslateTitle(title);
+    translatedTitles.push(translated);
+  }
         }
       }
     }
