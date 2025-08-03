@@ -130,7 +130,7 @@ async function translateContent(content) {
       config: {
         systemInstruction:
           "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
-        safetySettings,
+        safetySettings: safetySettings,
       },
     });
 
