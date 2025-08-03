@@ -138,6 +138,24 @@ async function translateContent(content) {
       return { translated: true, content: response.text, model: MODEL_NAME };
     }
     throw new Error('Gemini empty response');
+    } catch (err) {
+    if (err?.message?.toLowerCase().includes('internal') || err?.status >= 500) {
+      console.warn('Gemini internal error, retrying once…');
+      try {
+       const retry = await ai.models.generateContent({
+         model: MODEL_NAME,
+          contents: content,
+          config: {
+            systemInstruction:
+          "You are a strict translator. Do not modify the story, characters, or intent. Preserve all names of people, but translate techniques/props/places/organizations when readability benefits. Prioritize natural English flow while keeping the original's tone (humor, sarcasm, etc.). For idioms or culturally specific terms, translate literally if possible; otherwise, adapt with a footnote. Dialogue must match the original's bluntness or subtlety, including punctuation.",
+            safetySettings: safetySettings,
+          },
+        });
+        if (retry?.text) {
+         return { translated: true, content: retry.text, model: MODEL_NAME };
+        }
+      } catch (_) { /* swallow retry error, fall through */ }
+   }
   } catch (err) {
     console.warn(`Gemini failed → falling back to Google: ${err.message}`);
 
