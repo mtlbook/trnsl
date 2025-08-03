@@ -125,6 +125,7 @@ async function googleTranslateTitle(title) {
 async function translateContent(content, model = MODEL_NAME) {
   // 1️⃣ Try the requested model first
   try {
+        console.log(`[translate] using model: ${model}`);
     const response = await ai.models.generateContent({
       model,
       contents: content,
