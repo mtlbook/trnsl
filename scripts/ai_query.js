@@ -283,29 +283,30 @@ async function translateContentParallel(items) {
     console.log("Attempting to translate all titles in one batch...");
     let translatedTitles = await translateTitlesBatch(originalTitles);
     
-    // If batch translation failed, fall back to batches of 20
-    if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
-      console.log("Batch translation failed, falling back to smaller batches...");
-      translatedTitles = [];
-      const BATCH_SIZE = 20;
-      
-      for (let i = 0; i < originalTitles.length; i += BATCH_SIZE) {
-        const batch = originalTitles.slice(i, i + BATCH_SIZE);
-        console.log(`Translating title batch ${i + 1}-${i + batch.length}`);
-        
-        const batchResult = await translateTitlesBatch(batch);
-        if (batchResult && batchResult.length === batch.length) {
-          translatedTitles.push(...batchResult);
-        } else {
-          // If batch fails, translate individually
-          console.log("Batch failed, translating titles individually via GT");
-  for (const title of batch) {
-    const translated = await googleTranslateTitle(title);
-    translatedTitles.push(translated);
+if (!translatedTitles || translatedTitles.length !== originalTitles.length) {
+  console.log('Batch translation failed, retrying with parallel Gemini batches…');
+
+  const BATCH_SIZE = 20; 
+  const batches = [];
+  for (let i = 0; i < originalTitles.length; i += BATCH_SIZE) {
+    batches.push(originalTitles.slice(i, i + BATCH_SIZE));
   }
-        }
-      }
-    }
+
+  // helper: translate one slice with Gemini
+  async function translateSlice(slice) {
+    const res = await translateTitlesBatch(slice);
+    if (res && res.length === slice.length) return res;
+
+    // slice failed → fall back to individual Google calls
+    const singlePromises = slice.map(t => googleTranslateTitle(t));
+    return Promise.all(singlePromises);
+  }
+
+  // run up to CONCURRENCY Gemini requests in parallel
+  const promises = batches.map(b => sem.run(() => translateSlice(b)));
+  const nestedResults = await Promise.all(promises);
+  translatedTitles = nestedResults.flat();
+}
 
     // Prepare items with translated titles
     const itemsWithTranslatedTitles = itemsInRange.map((item, index) => ({
