@@ -100,6 +100,27 @@ async function translateTitleSingle(title) {
   }
 }
 
+async function googleTranslateTitle(title) {
+  const params = new URLSearchParams({
+    client: 'gtx',
+    sl: 'zh-CN',
+    tl: 'en',
+    dt: 't',
+    q: title,
+  });
+
+  try {
+    const { data } = await axios.get(
+      'https://translate.googleapis.com/translate_a/single',
+      { params, timeout: 10_000, headers: { 'User-Agent': 'Mozilla/5.0' } }
+    );
+    return data[0].map(seg => seg[0]).join('');
+  } catch (err) {
+    console.warn('Google title fallback failed:', err.message);
+    return title; // fallback to original
+  }
+}
+
 async function translateContent(content) {
   try {
     // 1️⃣  Try Gemini first
@@ -218,11 +239,11 @@ async function main(jsonUrl, rangeStr) {
           translatedTitles.push(...batchResult);
         } else {
           // If batch fails, translate individually
-          console.log("Batch failed, translating titles individually...");
-          for (const title of batch) {
-            const translated = await translateTitleSingle(title);
-            translatedTitles.push(translated);
-          }
+          console.log("Batch failed, translating titles individually via GT");
+      for (const title of batch) {
++            const translated = await googleTranslateTitle(title);
++            translatedTitles.push(translated);
+           }
         }
       }
     }
