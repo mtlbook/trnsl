@@ -8,10 +8,12 @@ import { Semaphore } from '../concurrency.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-flash";
+const MODEL_NAME = "gemini-2.5-flash-lite";
 const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
 // gemini-2.5-flash-lite 15 1000, gemini-2.5-flash 10 250, gemini-2.5-pro 5 100, gemini-2.0-flash 15 200, gemini-2.0-flash-lite 30 200
+const TRANSLATION_START_DELAY = 4_000;
+// 4_000 - 15, 8_000 - 10, 12_000 - 5
 const safetySettings = [
   {
     category: "HARM_CATEGORY_HARASSMENT",
@@ -241,7 +243,7 @@ async function main(jsonUrl, rangeStr) {
     }
 
 async function translateContentParallel(items) {
-  const DELAY = 8_000;               // 4_000 - 4 s between starts, 12_000 - 5s
+  // 2️⃣  Use the constant instead of a local DELAY
   const promises = items.map((item, idx) =>
     new Promise(resolve => {
       setTimeout(async () => {
@@ -253,7 +255,7 @@ async function translateContentParallel(items) {
           model:   res.model,
           ok:      res.translated,
         });
-      }, idx * DELAY);
+      }, idx * TRANSLATION_START_DELAY);
     })
   );
 
