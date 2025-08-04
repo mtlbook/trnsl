@@ -8,7 +8,7 @@ import { Semaphore } from '../concurrency.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-pro";
+const MODEL_NAME = "gemini-2.5-flash";
 const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
 // gemini-2.5-flash-lite 15 1000, gemini-2.5-flash 10 250, gemini-2.5-pro 5 100, gemini-2.0-flash 15 200, gemini-2.0-flash-lite 30 200
@@ -241,7 +241,7 @@ async function main(jsonUrl, rangeStr) {
     }
 
 async function translateContentParallel(items) {
-  const DELAY = 4_000;               // 4_000 - 4 s between starts, 12_000 - 5s
+  const DELAY = 8_000;               // 4_000 - 4 s between starts, 12_000 - 5s
   const promises = items.map((item, idx) =>
     new Promise(resolve => {
       setTimeout(async () => {
