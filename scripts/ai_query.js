@@ -8,11 +8,11 @@ import { Semaphore } from '../concurrency.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-flash-lite";
+const MODEL_NAME = "gemini-2.5-pro";
 const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
 // gemini-2.5-flash-lite 15 1000, gemini-2.5-flash 10 250, gemini-2.5-pro 5 100, gemini-2.0-flash 15 200, gemini-2.0-flash-lite 30 200
-const TRANSLATION_START_DELAY = 4_000;
+const TRANSLATION_START_DELAY = 12_000;
 // 4_000 - 15, 8_000 - 10, 12_000 - 5
 const safetySettings = [
   {
