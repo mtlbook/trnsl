@@ -7,10 +7,10 @@ import axios from 'axios';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ai = new GoogleGenAI({});
-const MODEL_NAME = "gemini-2.5-flash";
+const MODEL_NAME = "gemini-2.5-pro";
 const TITLE_MODEL = "gemini-2.0-flash";
 const FALLBACK_MODEL = "google translate";
-const TRANSLATION_START_DELAY = 8_000;
+const TRANSLATION_START_DELAY = 12_000;
 
 const safetySettings = [
   {
